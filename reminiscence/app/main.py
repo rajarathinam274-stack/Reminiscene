@@ -24,14 +24,19 @@ from pathlib import Path
 
 from ..benchmarks.runner import BenchmarkRunner, current_machine
 from .services.engine import ReminiscenceEngine
+from .config.settings import ConfigError, get_settings
 
 
 def _setup_logging(verbose: bool) -> None:
     # Structured local logging; raw document content is NEVER logged unless
     # REMINISCENCE_DEBUG_CONTENT=1 is explicitly set by a developer.
-    level = logging.DEBUG if verbose else logging.INFO
+    try:
+        level_name = "DEBUG" if verbose else get_settings().log_level
+    except ConfigError as e:
+        print(f"configuration error: {e}", file=sys.stderr)
+        raise SystemExit(2)
     logging.basicConfig(
-        level=level,
+        level=getattr(logging, level_name),
         format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
     )
 
@@ -114,6 +119,7 @@ def cmd_status(engine: ReminiscenceEngine, args) -> int:
     perf = engine.performance_snapshot()
     print(json.dumps({"offline_status": st,
                       "index_size": perf["index_size"],
+                      "settings": get_settings().describe(),
                       "machine": current_machine()}, indent=2))
     return 0
 
@@ -184,13 +190,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    _setup_logging(args.verbose)
+    try:
+        settings = get_settings()   # validate all REMINISCENCE_* env vars once
+        _setup_logging(args.verbose)
+    except ConfigError as e:
+        print(f"configuration error: {e}\n"
+              "Fix or unset the offending REMINISCENCE_* variable; "
+              "see docs/ENVIRONMENT.md for valid values.", file=sys.stderr)
+        return 2
     from .services.engine import EnginePaths
     paths = EnginePaths.default()
-    if args.data_dir:
+    if args.data_dir:  # explicit CLI flag wins over REMINISCENCE_DATA_DIR
         base = Path(args.data_dir)
         paths = EnginePaths(base, base / "reminiscence.db", base / "models")
-    engine = ReminiscenceEngine(paths=paths)
+    engine = ReminiscenceEngine(paths=paths, settings=settings)
     try:
         return args.fn(engine, args)
     finally:

@@ -53,7 +53,11 @@ class HashingTFIDFEmbedder(Embedder):
         self._doc_freq: Counter = Counter()
         self._n_docs = 0
 
-    model_id = "local-hash-tfidf-512"
+    @property
+    def model_id(self) -> str:
+        # Honest metadata: reflect the configured dimensionality (dim is
+        # tunable via REMINISCENCE_EMBEDDING_DIM).
+        return f"local-hash-tfidf-{self._dim}"
 
     @property
     def dim(self) -> int:

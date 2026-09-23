@@ -53,14 +53,31 @@ still runs fully — the scheduler simply reports `npu_verified: false` and rout
 
 ## Step 4 — Configure
 
-| Variable / Setting | Default | Purpose |
+All build/deployment tunables are `REMINISCENCE_*` environment variables, validated
+at startup (fail-fast with actionable errors). **Full reference:
+[`docs/ENVIRONMENT.md`](ENVIRONMENT.md).** A ready-to-copy template lives in
+[`.env.example`](../.env.example) (`cp .env.example .env`, then load it into the
+shell — see the doc for one-liners for bash and PowerShell).
+
+Quick overview:
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `--data-dir <path>` CLI flag | `%USERPROFILE%\.reminiscence` | storage location (Settings → Memory in GUI) |
-| `REMINISCENCE_DEBUG_CONTENT=1` | unset | logs raw document content — **development only**, privacy-sensitive; keep unset in production (spec §20) |
+| `REMINISCENCE_DATA_DIR` | `%USERPROFILE%\.reminiscence` | storage root (DB, vector index, models); `--data-dir` CLI flag wins over it |
+| `REMINISCENCE_LOG_LEVEL` | `INFO` | verbosity (`DEBUG`…`CRITICAL`) |
+| `REMINISCENCE_DEBUG_CONTENT` | `false` | logs raw document content — **development only**, privacy-sensitive; keep unset/false in production (spec §20) |
+| `REMINISCENCE_N_WORKERS` | `2` | ingestion worker threads (1–16) |
+| `REMINISCENCE_MAX_FILE_MB` | `512` | max import file size |
+| `REMINISCENCE_EMBEDDING_DIM` | `512` | vector dimensionality (changing it requires re-import) |
+| `REMINISCENCE_EMBEDDING_MODEL_PATH` | unset | optional local embedding model |
+| `REMINISCENCE_ALLOW_VLM` | `false` | allow vision-language workloads |
+| `REMINISCENCE_PREFER_NPU_TASKS` | `embedding,asr,ocr,classifier` | NPU routing preferences (CPU/GPU fallback) |
+| `REMINISCENCE_RETRIEVAL_{ALPHA,BETA,GAMMA,DELTA,EPSILON}` | `0.45/0.35/0.10/0.05/0.05` | hybrid retrieval weights (must sum to ≈1.0) |
 
 Ensure the deploying user has read/write access to the data directory. There are no
 secrets to manage locally; if cloud AI backends are ever enabled, inject keys via the
-environment — never commit them.
+environment — never commit them (`.env` is git-ignored). Verify the resolved
+configuration with `python -m reminiscence.app.main status` (Step 5).
 
 ## Step 5 — Verify installation
 

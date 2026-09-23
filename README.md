@@ -939,6 +939,12 @@ Create a local environment file:
 cp .env.example .env
 ```
 
+`.env.example` documents the validated `REMINISCENCE_*` build/runtime controls
+(storage location, logging/privacy, ingestion workers, embedding model, NPU
+routing, hybrid retrieval weights). Full reference:
+**[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**. Deployment steps:
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 Example configuration:
 
 ```env
