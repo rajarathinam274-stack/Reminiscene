@@ -1,4 +1,9 @@
-node_modules/
+# Python bytecode and caches
+__pycache__/
+*.pyc
+
+# Environment files (common for Python projects, though not explicitly in change list, good practice)
+.envnode_modules/
 .next/
 dist/
 build/

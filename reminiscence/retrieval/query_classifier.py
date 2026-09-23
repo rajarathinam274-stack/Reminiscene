@@ -1,0 +1,135 @@
+"""Query classification before expensive retrieval.
+
+Categories (composable): FACT, SOURCE_LOOKUP, TEMPORAL_LOOKUP, CROSS_SOURCE,
+VISUAL, EXPLANATION.  A tiny rule-based classifier ships by default; an ONNX
+TinyBERT head can replace it via the same ``QueryClassifier`` interface once
+benchmarked on-target.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from typing import Optional
+
+
+class QueryCategory(str, Enum):
+    FACT = "FACT"
+    SOURCE_LOOKUP = "SOURCE_LOOKUP"
+    TEMPORAL_LOOKUP = "TEMPORAL_LOOKUP"
+    CROSS_SOURCE = "CROSS_SOURCE"
+    VISUAL = "VISUAL"
+    EXPLANATION = "EXPLANATION"
+
+
+@dataclass
+class ClassifiedQuery:
+    text: str
+    categories: list[QueryCategory] = field(default_factory=list)
+    time_range: Optional[tuple[datetime, datetime]] = None
+    source_hint: Optional[str] = None
+    modality_hint: Optional[str] = None       # pdf | audio | video | image
+    terms: list[str] = field(default_factory=list)
+
+    @property
+    def primary(self) -> QueryCategory:
+        return self.categories[0] if self.categories else QueryCategory.FACT
+
+
+_VISUAL_WORDS = {
+    "diagram", "chart", "graph", "image", "picture", "photo", "screenshot",
+    "slide", "figure", "visual", "drawing", "map", "table", "plot", "logo",
+}
+_VISUAL_PATTERNS = [r"\bwhat (does|did) .* look like", r"\bsaw\b.*\b(diagram|chart|image|slide|picture)\b"]
+_EXPLAIN_WORDS = {"explain", "difference", "compare", "why", "how does", "meaning",
+                  "summarize", "summary", "versus", "vs", "interpret", "understand"}
+_SOURCE_WORDS = {"where", "which file", "which document", "source", "came from",
+                 "located", "found it", "what pdf", "what doc", "in which"}
+_CROSS_WORDS = {"across", "all my", "every", "both", "between", "notes and",
+                "connect", "related", "multiple", "corroborat"}
+
+_RELATIVE_TIME = {
+    "yesterday": timedelta(days=1),
+    "today": timedelta(days=0),
+    "last week": timedelta(days=7),
+    "this week": timedelta(days=7),
+    "last month": timedelta(days=30),
+    "this month": timedelta(days=30),
+    "past month": timedelta(days=30),
+    "recent": timedelta(days=7),
+    "last year": timedelta(days=365),
+}
+
+
+class QueryClassifier:
+    """Rule-based baseline implementing the required category set."""
+
+    def classify(self, text: str, now: Optional[datetime] = None) -> ClassifiedQuery:
+        now = now or datetime.now(timezone.utc)
+        low = text.lower()
+        cats: list[QueryCategory] = []
+
+        # temporal
+        tr = self._time_range(low, now)
+        if tr:
+            cats.append(QueryCategory.TEMPORAL_LOOKUP)
+
+        # visual
+        if any(w in low for w in _VISUAL_WORDS) or any(re.search(p, low) for p in _VISUAL_PATTERNS):
+            cats.append(QueryCategory.VISUAL)
+
+        # source lookup ("where did I see...", quoted filenames)
+        if any(w in low for w in _SOURCE_WORDS) or re.search(r"\.(pdf|mp4|mp3|docx|pptx|png|jpe?g)\b", low):
+            if QueryCategory.SOURCE_LOOKUP not in cats:
+                cats.append(QueryCategory.SOURCE_LOOKUP)
+
+        # cross-source
+        if any(w in low for w in _CROSS_WORDS) or re.search(r"\b(my notes?|my docs?|my files?)\b", low):
+            cats.append(QueryCategory.CROSS_SOURCE)
+
+        # explanation
+        if any(w in low for w in _EXPLAIN_WORDS):
+            cats.append(QueryCategory.EXPLANATION)
+
+        if not cats:
+            cats.append(QueryCategory.FACT)
+
+        modality = None
+        if ".pdf" in low: modality = "pdf"
+        elif ".mp4" in low or "video" in low or "lecture" in low: modality = "video"
+        elif ".mp3" in low or "recording" in low or "audio" in low: modality = "audio"
+        elif any(k in low for k in ("screenshot", ".png", ".jpg", "image")): modality = "image"
+
+        m = re.search(r"([A-Za-z0-9_\-\. ]+\.(?:pdf|mp4|mp3|docx|pptx|png|jpe?g))", low)
+        source_hint = m.group(1).strip() if m else None
+
+        terms = re.findall(r"[a-z0-9]{3,}", low)
+        stop = {"what", "where", "when", "which", "about", "that", "this", "with",
+                "from", "did", "does", "the", "and", "for", "was", "were", "how", "why"}
+        terms = [t for t in terms if t not in stop]
+
+        return ClassifiedQuery(text=text, categories=cats, time_range=tr,
+                               source_hint=source_hint, modality_hint=modality, terms=terms)
+
+    @staticmethod
+    def _time_range(low: str, now: datetime) -> Optional[tuple[datetime, datetime]]:
+        for phrase, delta in _RELATIVE_TIME.items():
+            if phrase in low:
+                start = now - delta
+                # normalize 'last month' to calendar-ish window
+                return (start.replace(hour=0, minute=0, second=0, microsecond=0), now)
+        m = re.search(r"\bin (\d{4})\b", low)
+        if m:
+            y = int(m.group(1))
+            return (datetime(y, 1, 1, tzinfo=timezone.utc), datetime(y, 12, 31, 23, 59, tzinfo=timezone.utc))
+        m = re.search(r"\b(\w+) (\d{1,2}),? (\d{4})\b", low)
+        if m:
+            try:
+                d = datetime.strptime(f"{m.group(1)} {m.group(2)} {m.group(3)}", "%B %d %Y")
+                d = d.replace(tzinfo=now.tzinfo or timezone.utc)
+                return (d, d + timedelta(days=1))
+            except ValueError:
+                return None
+        return None
