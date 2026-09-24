@@ -76,7 +76,30 @@ class MemoryEvent:
 
     created_at: Optional[str] = None  # ISO string; set by persistence layer
 
+    # -- Phase 14 (P2): explicit temporal semantics -----------------------
+    # created_at is the INDEXING time. It must never be used as a stand-in
+    # for when the memory actually happened or was captured:
+    #   photo taken 2022-12-14, imported 2026-09-24  ->  event/capture time
+    #   is 2022-12-14; "memories from December 2022" queries must use it.
+    event_time_start: Optional[str] = None   # ISO; when the remembered thing occurred
+    event_time_end: Optional[str] = None     # ISO; end of the occurrence if bounded
+    captured_at: Optional[str] = None        # ISO; when media/file was captured (EXIF/mtime)
+    modified_at: Optional[str] = None        # ISO; last modification of the underlying content
+    time_source: Optional[str] = None        # exif | filename | transcript | import | manual | inferred
+    time_confidence: float = 1.0             # 0..1 — how sure we are about event/capture time
+
+    # -- Phase 14 (P2): reproducibility / incremental re-indexing ----------
+    # Every processed memory must be traceable to the exact pipeline and
+    # model versions that produced it (debugging + benchmark reproducibility).
+    extraction_version: Optional[str] = None
+    embedding_version: Optional[str] = None
+    pipeline_version: Optional[str] = None
+
     # ------------------------------------------------------------------
+    def effective_event_time(self) -> Optional[str]:
+        """Best available *memory* timestamp (never silently indexing time)."""
+        return self.event_time_start or self.captured_at or self.created_at
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["modality"] = Modality(self.modality).value

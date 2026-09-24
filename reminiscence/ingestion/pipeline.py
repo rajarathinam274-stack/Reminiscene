@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,6 +27,11 @@ from ..memory.events import MemoryEvent, Modality, Region
 from ..storage.database import Database
 from ..storage.vector_index import VectorIndex
 from ..workers.queue import Job, JobContext
+
+# Reproducibility (Phase 14): every processed memory is traceable to the
+# pipeline/extraction versions that produced it. Bump on behavior changes.
+PIPELINE_VERSION = "1.0"
+EXTRACTION_VERSION = "1.0"
 
 log = logging.getLogger("reminiscence.ingestion")
 
@@ -62,9 +68,53 @@ def detect_modality(path: str | Path) -> Modality:
     raise UnsupportedFormat(f"Unsupported file format '{ext}'. Supported: {sorted(SUPPORTED_EXTS)}")
 
 
+def content_hash(path: str | Path) -> str:
+    """SHA-256 of file bytes — the *content identity* (Phase 14).
+
+    Path-based ids break on move/copy; content hashes enable duplicate
+    detection, moved-file recognition and reliable re-indexing.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def source_id_for(path: str | Path) -> str:
     p = Path(path).resolve()
     return hashlib.sha1(str(p).encode()).hexdigest()[:16]
+
+
+def capture_time_for(path: str | Path) -> tuple[Optional[str], str]:
+    """Best-effort *capture* time of a file (never import time).
+
+    Priority: EXIF DateTimeOriginal (images) > filesystem mtime.
+    Returns (iso_utc_or_None, time_source).
+    """
+    p = Path(path)
+    if p.suffix.lower() in IMAGE_EXTS:
+        try:  # Pillow is optional
+            from PIL import Image  # type: ignore
+
+            with Image.open(p) as im:
+                exif = im.getexif()
+                for tag in (36867, 306):  # DateTimeOriginal, DateTime
+                    val = exif.get(tag)
+                    if val:
+                        d = datetime.strptime(str(val), "%Y:%m:%d %H:%M:%S")
+                        return d.isoformat(), "exif"
+        except Exception:
+            pass
+    return _mtime_iso(p), "filesystem_mtime"
+
+
+def _mtime_iso(path: str | Path) -> Optional[str]:
+    try:
+        m = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
+        return m.isoformat()
+    except OSError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -223,13 +273,29 @@ class IngestionPipeline:
         if job and not ctx:
             pass  # progress handled by caller
 
-        # 1. File identification
+        # 1. File identification + content identity (SHA-256, not path)
         stage("identify")
         modality = detect_modality(path)
+        chash = content_hash(path)
         sid = source_id_for(path)
         done("identify")
 
-        # 2. Metadata extraction
+        # 1b. Duplicate detection: identical bytes already ingested?
+        existing_src = self.db.get_source_by_hash(chash)
+        if existing_src and existing_src["id"] != sid:
+            # Same content known under another path (moved or copied file):
+            # reuse the existing source id, refresh its location, and do NOT
+            # create a second set of memories.
+            mime0 = mimetypes.guess_type(str(path))[0]
+            sid = self.db.upsert_source(existing_src["id"], str(path), path.name, modality,
+                                        mime_type=mime0, size_bytes=path.stat().st_size,
+                                        content_hash=chash,
+                                        file_modified_at=_mtime_iso(path))
+            return IngestionResult(source_id=sid, events_created=0, modality=modality,
+                                   warnings=["same content already indexed at new path "
+                                             "— treated as moved/copied file, skipped"])
+
+        # 2. Metadata extraction (incl. capture time — never import time)
         stage("metadata")
         mime = mimetypes.guess_type(str(path))[0]
         size = path.stat().st_size
@@ -238,8 +304,11 @@ class IngestionPipeline:
             duration = ffprobe_duration(path)
             if duration is None:
                 warnings.append("ffprobe unavailable: media duration unknown")
+        captured_iso, time_source = capture_time_for(path)
         self.db.upsert_source(sid, str(path), path.name, modality,
-                              mime_type=mime, size_bytes=size, duration_seconds=duration)
+                              mime_type=mime, size_bytes=size, duration_seconds=duration,
+                              content_hash=chash, captured_at=captured_iso,
+                              file_modified_at=_mtime_iso(path))
         done("metadata")
 
         # 3+4. Modality processing & chunking
@@ -327,6 +396,30 @@ class IngestionPipeline:
             )
             if modality == Modality.IMAGE and ev.location is None:
                 ev.metadata.setdefault("whole_image", True)
+            # -- Phase 14 temporal semantics --------------------------------
+            # Timestamped media: derive real event time from the source's
+            # capture time + segment offset (never import time).
+            if captured_iso and ev.timestamp_start is not None:
+                try:
+                    base = datetime.fromisoformat(captured_iso)
+                    st = base + timedelta(seconds=float(ev.timestamp_start))
+                    en = base + timedelta(seconds=float(ev.timestamp_end or ev.timestamp_start))
+                    ev.event_time_start = st.isoformat()
+                    ev.event_time_end = en.isoformat()
+                    ev.time_source = f"{time_source}+transcript_offset"
+                    ev.time_confidence = 0.9
+                except (ValueError, TypeError):
+                    pass
+            elif captured_iso:
+                ev.captured_at = captured_iso
+                ev.event_time_start = captured_iso
+                ev.time_source = time_source
+                ev.time_confidence = 0.7 if time_source == "filesystem_mtime" else 0.95
+            ev.modified_at = _mtime_iso(path)
+            # reproducibility: trace every memory to its pipeline/model versions
+            ev.extraction_version = EXTRACTION_VERSION
+            ev.embedding_version = self.embedder.model_id
+            ev.pipeline_version = PIPELINE_VERSION
             events.append(ev)
         done("events")
 

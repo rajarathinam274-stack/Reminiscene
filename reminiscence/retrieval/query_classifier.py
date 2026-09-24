@@ -32,6 +32,10 @@ class ClassifiedQuery:
     source_hint: Optional[str] = None
     modality_hint: Optional[str] = None       # pdf | audio | video | image
     terms: list[str] = field(default_factory=list)
+    # Phase 14: resolved graph entities {entity_type: [entity_id, ...]}
+    entities: dict[str, list[str]] = field(default_factory=dict)
+    temporal_field: Optional[str] = None      # event_time | captured_at | any
+    intent_confidence: float = 0.5
 
     @property
     def primary(self) -> QueryCategory:
@@ -62,9 +66,29 @@ _RELATIVE_TIME = {
     "last year": timedelta(days=365),
 }
 
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july",
+     "august", "september", "october", "november", "december"])}
+
+
+def _month_bounds(y: int, mo: int) -> tuple[datetime, datetime]:
+    start = datetime(y, mo, 1, tzinfo=timezone.utc)
+    end = datetime(y + (mo == 12), (mo % 12) + 1, 1, tzinfo=timezone.utc)
+    return start, end - timedelta(microseconds=1)
+
 
 class QueryClassifier:
-    """Rule-based baseline implementing the required category set."""
+    """Rule-based baseline implementing the required category set.
+
+    Deterministic and dependency-free; a compact ONNX head can replace it
+    behind the same interface once benchmarked on-target.
+    """
+
+    def __init__(self, entity_resolver=None):
+        """entity_resolver: optional callable(text_lower) ->
+        dict[str, list[str]] mapping entity_type -> entity_ids, used to hook
+        the classifier into the memory graph without coupling to storage."""
+        self.entity_resolver = entity_resolver
 
     def classify(self, text: str, now: Optional[datetime] = None) -> ClassifiedQuery:
         now = now or datetime.now(timezone.utc)
@@ -110,11 +134,39 @@ class QueryClassifier:
                 "from", "did", "does", "the", "and", "for", "was", "were", "how", "why"}
         terms = [t for t in terms if t not in stop]
 
+        # entity resolution against the memory graph (optional hook)
+        entities: dict[str, list[str]] = {}
+        if self.entity_resolver is not None:
+            try:
+                entities = self.entity_resolver(low) or {}
+            except Exception:
+                entities = {}
+        if entities and QueryCategory.CROSS_SOURCE not in cats:
+            cats.append(QueryCategory.CROSS_SOURCE)
+
+        intent_conf = min(1.0, 0.5 + 0.1 * len(cats)
+                          + (0.2 if tr else 0.0) + (0.1 if entities else 0.0))
+
         return ClassifiedQuery(text=text, categories=cats, time_range=tr,
-                               source_hint=source_hint, modality_hint=modality, terms=terms)
+                               source_hint=source_hint, modality_hint=modality,
+                               terms=terms, entities=entities,
+                               temporal_field="event_time" if tr else None,
+                               intent_confidence=intent_conf)
 
     @staticmethod
     def _time_range(low: str, now: datetime) -> Optional[tuple[datetime, datetime]]:
+        # explicit month+year ("December 2022", "in July 2024") first —
+        # calendar windows beat relative approximations.
+        m = re.search(r"\b(" + "|".join(_MONTHS) + r")\s+(\d{4})\b", low)
+        if m:
+            return _month_bounds(int(m.group(2)), _MONTHS[m.group(1)])
+        m = re.search(r"\b(?:in|during)\s+(" + "|".join(_MONTHS) + r")\b", low)
+        if m:
+            y = now.year
+            start, end = _month_bounds(y, _MONTHS[m.group(1)])
+            if start > now:  # "in December" said in September means last December
+                start, end = _month_bounds(y - 1, _MONTHS[m.group(1)])
+            return start, end
         for phrase, delta in _RELATIVE_TIME.items():
             if phrase in low:
                 start = now - delta
