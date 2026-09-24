@@ -360,11 +360,29 @@ class Database:
         return [self._row_to_event(r) for r in rows]
 
     # -- lexical (FTS5) ------------------------------------------------------
+    @staticmethod
+    def _fts_match_query(query: str) -> str:
+        """Build a safe FTS5 MATCH expression from free text.
+
+        Each token becomes an independent quoted prefix term joined by
+        implicit AND.  Previously the whole query was wrapped as one phrase
+        prefix ("a b c"*), which made multi-word queries miss documents where
+        the terms were present but not adjacent in exactly that order.
+        """
+        import re
+
+        tokens = re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?", query)
+        if not tokens:
+            return ""
+        return " ".join('"' + t.replace('"', '""') + '"*' for t in tokens)
+
     def fts_search(self, query: str, limit: int = 50) -> list[tuple[MemoryEvent, float]]:
         """Returns (event, bm25_score) — lower bm25 == better match."""
         if not query.strip():
             return []
-        safe = '"' + query.replace('"', '""') + '"*'
+        safe = self._fts_match_query(query)
+        if not safe:
+            return []
         with self._lock:
             rows = self._conn.execute(
                 """

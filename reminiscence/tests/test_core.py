@@ -279,11 +279,27 @@ class TestScheduler:
         assert d.fallback and "No installed model" in d.reason
 
     def test_npu_never_claimed_without_verification(self):
-        sch = AIWorkloadScheduler(ModelRegistry())
+        reg = ModelRegistry()
+        # Mark the embedding model as installed so routing must pick a real
+        # execution provider.  Without a *verified* QNN EP the decision must
+        # report CPU and label it as a fallback — never silently claim NPU.
+        entry = reg.get("embed-minilm-l6-v2")
+        assert entry is not None
+        entry.status = "available"
+        sch = AIWorkloadScheduler(reg)
         if not sch.npu_available:
             d = sch.route("embedding")
             assert d.execution_provider == "CPUExecutionProvider"
             assert d.fallback is True   # honest labeling of CPU fallback
+
+    def test_no_inference_when_no_model_installed(self):
+        # Honest degradation: with no installed model there is no runtime and
+        # no execution provider at all (not even a misleading CPU claim).
+        sch = AIWorkloadScheduler(ModelRegistry())
+        sch._qnn_verified = False
+        d = sch.route("embedding")
+        assert d.runtime == "none" and d.execution_provider == "none"
+        assert d.fallback is True and not d.accelerated
 
 
 # ---------------------------------------------------------------------------

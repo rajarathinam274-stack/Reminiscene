@@ -106,6 +106,8 @@ class AIWorkloadScheduler:
         if entry is None:
             # No *installed* model, but we can still describe the intended
             # routing target from the catalogue (status stays honest).
+            # There is no runtime and no execution provider at all — we never
+            # claim even a CPU EP for inference that does not happen.
             planned = self._planned_candidate(task)
             d = RoutingDecision(
                 ts=now, task=task, model_id=planned.id if planned else None,
