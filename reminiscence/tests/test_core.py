@@ -6,7 +6,9 @@ All tests are offline and dependency-light (SQLite FTS5 + numpy only).
 
 from __future__ import annotations
 
+import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +29,8 @@ from reminiscence.retrieval.hybrid import HybridRetriever, RetrievalWeights
 from reminiscence.retrieval.query_classifier import QueryCategory, QueryClassifier
 from reminiscence.storage.database import Database
 from reminiscence.storage.vector_index import NumpyVectorIndex
+from reminiscence.ingestion.pipeline import (EXTRACTION_VERSION, PIPELINE_VERSION,
+                                      source_id_for)
 from reminiscence.workers.queue import JobQueue
 
 
@@ -279,11 +283,41 @@ class TestScheduler:
         assert d.fallback and "No installed model" in d.reason
 
     def test_npu_never_claimed_without_verification(self):
-        sch = AIWorkloadScheduler(ModelRegistry())
+        reg = ModelRegistry()
+        # Mark the embedding model as installed so routing must pick a real
+        # execution provider.  Without a *verified* QNN EP the decision must
+        # report CPU and label it as a fallback — never silently claim NPU.
+        entry = reg.get("embed-minilm-l6-v2")
+        assert entry is not None
+        entry.status = "available"
+        sch = AIWorkloadScheduler(reg)
         if not sch.npu_available:
             d = sch.route("embedding")
             assert d.execution_provider == "CPUExecutionProvider"
             assert d.fallback is True   # honest labeling of CPU fallback
+
+    def test_no_inference_when_no_model_installed(self):
+        # Honest degradation: with no installed model there is no runtime and
+        # no execution provider at all (not even a misleading CPU claim).
+        # Tasks without any builtin implementation (e.g. asr) must report
+        # runtime/EP "none" — we never claim inference that does not happen.
+        sch = AIWorkloadScheduler(ModelRegistry())
+        sch._qnn_verified = False
+        d = sch.route("asr")
+        assert d.runtime == "none" and d.execution_provider == "none"
+        assert d.fallback is True and not d.accelerated
+
+    def test_embedding_builtin_fallback_is_honest(self):
+        # Embeddings have a deterministic builtin fallback (hashing TF-IDF).
+        # When no neural model is installed the decision must be labeled
+        # "builtin", flagged as fallback, and never claim acceleration.
+        sch = AIWorkloadScheduler(ModelRegistry())
+        sch._qnn_verified = False
+        d = sch.route("embedding")
+        assert d.runtime == "builtin"
+        assert d.model_id == "local-hash-tfidf-512"
+        assert d.fallback is True and not d.accelerated
+        assert "Not neural inference" in d.reason
 
 
 # ---------------------------------------------------------------------------
@@ -409,5 +443,152 @@ class TestOffline:
             assert ans.grounded
             st = engine.offline_status()
             assert st["cloud_dependencies"] is False
+        finally:
+            engine.close()
+
+
+def _make_engine(tmp_path):
+    paths = EnginePaths(tmp_path / "data", tmp_path / "data" / "db.sqlite",
+                        tmp_path / "models")
+    return ReminiscenceEngine(paths=paths)
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — Release Hardening regressions (data foundation correctness)
+# ---------------------------------------------------------------------------
+
+class TestPhase14DataFoundation:
+    def test_migration_v3_upgrades_existing_db(self, tmp_path):
+        """A v2 database must upgrade non-destructively to v3."""
+        db_path = str(tmp_path / "up.db")
+        db = Database(db_path)
+        assert db.get_schema_version() == 3
+        src = source_id_for(tmp_path)
+        db.upsert_source(src, str(tmp_path / "a.txt"), "a.txt", Modality.DOCUMENT)
+        ev = MemoryEvent(id="e1", source_id=src, modality=Modality.DOCUMENT,
+                         content="transformer attention notes",
+                         event_time_start="2022-12-25T18:30:00+00:00",
+                         captured_at="2022-12-25T20:14:00+00:00",
+                         time_source="exif", time_confidence=0.95,
+                         extraction_version="1.0", embedding_version="hash-tfidf",
+                         pipeline_version="1.0")
+        db.add_event(ev)
+        got = db.get_event("e1")
+        assert got.event_time_start.startswith("2022-12-25")
+        assert got.time_source == "exif"
+        assert got.pipeline_version == "1.0"
+        # reopen: user_version persisted at 3, data intact
+        db.close()
+        db2 = Database(db_path)
+        assert db2.get_schema_version() == 3
+        assert db2.get_event("e1") is not None
+        db2.close()
+
+    def test_content_hash_dedup_moved_file(self, tmp_path):
+        """Same bytes at a new path must reuse the existing source, no dupes."""
+        orig = tmp_path / "notes.txt"
+        orig.write_text("the transformer architecture processes sequences")
+        moved = tmp_path / "backup" / "notes-copy.txt"
+        moved.parent.mkdir()
+        shutil.copyfile(orig, moved)
+
+        engine = _make_engine(tmp_path)
+        try:
+            r1 = engine.pipeline.ingest(orig)
+            assert r1.events_created > 0
+            r2 = engine.pipeline.ingest(moved)
+            assert r2.source_id == r1.source_id          # deduped by SHA-256
+            assert r2.events_created == 0                # no duplicate memories
+            assert any("moved/copied" in w for w in r2.warnings)
+            row = engine.db.get_source(r1.source_id)
+            assert row["current_path"] == str(moved.resolve())  # location refreshed
+            assert len(engine.db.all_events()) == r1.events_created
+        finally:
+            engine.close()
+
+    def test_temporal_query_uses_event_time_not_import_time(self, tmp_path):
+        """'December 2022' must match on capture/event time despite 2026 import."""
+        engine = _make_engine(tmp_path)
+        try:
+            src = "s-dec"
+            engine.db.upsert_source(src, "/x/photo.jpg", "photo.jpg", Modality.IMAGE)
+            old = MemoryEvent(id="dec22", source_id=src, modality=Modality.IMAGE,
+                              content="beach sunset photo",
+                              event_time_start="2022-12-14T10:00:00+00:00",
+                              captured_at="2022-12-14T10:00:00+00:00",
+                              time_source="exif")
+            recent = MemoryEvent(id="now", source_id=src, modality=Modality.IMAGE,
+                                 content="today's screenshot")  # created_at = now
+            engine.db.add_event(old)
+            engine.db.add_event(recent)
+            start = datetime(2022, 12, 1, tzinfo=timezone.utc)
+            end = datetime(2022, 12, 31, 23, 59, tzinfo=timezone.utc)
+            hits = {e.id for e in engine.db.events_in_range(start.isoformat(), end.isoformat())}
+            assert "dec22" in hits and "now" not in hits
+        finally:
+            engine.close()
+
+    def test_calendar_month_classifier_and_end_to_end(self, tmp_path):
+        """'photos from December 2022' -> temporal window + correct memory."""
+        engine = _make_engine(tmp_path)
+        try:
+            src = "s-cal"
+            engine.db.upsert_source(src, "/x/p.jpg", "p.jpg", Modality.IMAGE)
+            engine.db.add_event(MemoryEvent(
+                id="old-photo", source_id=src, modality=Modality.IMAGE,
+                content="photos from the temple festival",
+                event_time_start="2022-12-20T09:00:00+00:00",
+                captured_at="2022-12-20T09:00:00+00:00", time_source="exif"))
+            engine.db.add_event(MemoryEvent(
+                id="new-photo", source_id=src, modality=Modality.IMAGE,
+                content="photos from the temple festival, summer revisit",
+                event_time_start="2024-07-01T09:00:00+00:00"))
+            cq = QueryClassifier().classify("what photos did I take in December 2022?")
+            assert cq.time_range is not None
+            assert cq.time_range[0].year == 2022 and cq.time_range[0].month == 12
+            assert cq.time_range[1].month == 12
+            results = engine.retriever.retrieve(cq, top_k=5)
+            ids = [c.event.id for c in results]
+            assert "old-photo" in ids
+            assert "new-photo" not in ids   # hard temporal filter
+        finally:
+            engine.close()
+
+    def test_graph_entity_candidates_surface_related_memory(self, tmp_path):
+        """A memory linked to person 'alex' is retrieved via entity channel."""
+        engine = _make_engine(tmp_path)
+        try:
+            src = "s-g"
+            engine.db.upsert_source(src, "/x/meeting.txt", "meeting.txt", Modality.DOCUMENT)
+            m1 = MemoryEvent(id="m1", source_id=src, modality=Modality.DOCUMENT,
+                             content="quarterly planning discussion recap")
+            m2 = MemoryEvent(id="m2", source_id=src, modality=Modality.DOCUMENT,
+                             content="lunch menu ideas")
+            engine.db.add_event(m1); engine.db.add_event(m2)
+            engine.db.link_entity("m1", "person", "alex", "MENTIONS",
+                                  confidence=0.9, method="rule", evidence_id="m1")
+            def resolver(low: str) -> dict:
+                return {"person": ["alex"]} if "alex" in low else {}
+            cq = QueryClassifier(entity_resolver=resolver).classify(
+                "notes from meeting with alex")
+            assert cq.entities.get("person") == ["alex"]
+            results = engine.retriever.retrieve(cq, top_k=5)
+            ids = [c.event.id for c in results]
+            assert "m1" in ids                       # graph candidate entered pool
+            g = next(c for c in results if c.event.id == "m1")
+            assert g.graph_rel > 0 and "graph" in g.channels
+        finally:
+            engine.close()
+
+    def test_pipeline_version_stamped_on_ingested_events(self, tmp_path):
+        f = tmp_path / "doc.txt"
+        f.write_text("# Transformers\nThe attention mechanism lets models weigh tokens.")
+        engine = _make_engine(tmp_path)
+        try:
+            engine.pipeline.ingest(f)
+            for ev in engine.db.all_events():
+                assert ev.pipeline_version == PIPELINE_VERSION
+                assert ev.extraction_version == EXTRACTION_VERSION
+                assert ev.embedding_version  # model identity recorded
         finally:
             engine.close()

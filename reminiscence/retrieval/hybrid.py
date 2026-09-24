@@ -26,18 +26,19 @@ from .query_classifier import ClassifiedQuery, QueryCategory
 
 @dataclass
 class RetrievalWeights:
-    alpha: float = 0.45   # semantic similarity
-    beta: float = 0.35    # lexical relevance (BM25 normalized)
-    gamma: float = 0.10   # temporal relevance
-    delta: float = 0.05   # modality relevance
+    alpha: float = 0.45    # semantic similarity
+    beta: float = 0.35     # lexical relevance (BM25 normalized)
+    gamma: float = 0.10    # temporal relevance
+    delta: float = 0.05    # modality relevance
     epsilon: float = 0.05  # source relevance
+    zeta: float = 0.08     # graph/entity relevance
 
     @staticmethod
     def from_db(db: Database) -> "RetrievalWeights":
         w = db.get_setting("retrieval_weights")
         if isinstance(w, dict):
             return RetrievalWeights(**{k: float(v) for k, v in w.items() if k in
-                                       ("alpha", "beta", "gamma", "delta", "epsilon")})
+                                       ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")})
         return RetrievalWeights()
 
     def to_db(self, db: Database) -> None:
@@ -53,6 +54,7 @@ class Candidate:
     temporal: float = 0.0
     modality_rel: float = 0.0
     source_rel: float = 0.0
+    graph_rel: float = 0.0
     channels: list[str] = field(default_factory=list)
 
 
@@ -114,14 +116,15 @@ class HybridRetriever:
             c.channels.append("semantic")
 
         # --- Stage 3: metadata filters / boosts ---------------------------
-        now = datetime.now(timezone.utc)
         for c in pool.values():
             ev = c.event
-            # temporal relevance
+            # temporal relevance — measured against MEMORY time
+            # (event_time_start/captured_at), never indexing time.
             if cq.time_range:
                 start_iso = cq.time_range[0].isoformat()
                 end_iso = cq.time_range[1].isoformat()
-                in_window = bool(ev.created_at and start_iso <= ev.created_at <= end_iso)
+                mem_time = ev.effective_event_time()
+                in_window = bool(mem_time and start_iso <= mem_time <= end_iso)
                 c.temporal = 1.0 if in_window else 0.0
             else:
                 c.temporal = 0.5  # neutral when no temporal constraint
@@ -140,6 +143,30 @@ class HybridRetriever:
             else:
                 c.source_rel = 0.5
 
+        # --- Stage 2b: graph/entity candidates ------------------------------
+        # Memories linked (via evidence-backed entity_links) to entities the
+        # query mentions enter the pool directly.  This is how "meeting with
+        # Alex last month" can surface memories that never contain "Alex".
+        for etype, eids in getattr(cq, "entities", {}).items():
+            for eid in eids:
+                for ev in self.db.events_by_entity(etype, eid):
+                    c = pool.setdefault(ev.id, Candidate(event=ev, score=0.0))
+                    c.graph_rel = max(c.graph_rel, 1.0)
+                    if "graph" not in c.channels:
+                        c.channels.append("graph")
+        # second-degree expansion from strong lexical/semantic hits
+        seeds = [c.event.id for c in pool.values()
+                 if c.lexical > 0.7 or c.semantic > 0.7][:5]
+        for sid in seeds:
+            for _s, tgt, conf in self.db.related(sid)[:8]:
+                tev = self.db.get_event(tgt)
+                if tev is None:
+                    continue
+                c = pool.setdefault(tev.id, Candidate(event=tev, score=0.0))
+                c.graph_rel = max(c.graph_rel, min(1.0, conf * 0.6))
+                if "graph" not in c.channels:
+                    c.channels.append("graph")
+
         # hard filter: temporal lookup must respect the window
         if cq.time_range and QueryCategory.TEMPORAL_LOOKUP in cq.categories:
             for eid in [e for e, c in pool.items() if c.temporal == 0.0]:
@@ -153,6 +180,7 @@ class HybridRetriever:
                 + w.gamma * c.temporal
                 + w.delta * c.modality_rel
                 + w.epsilon * c.source_rel
+                + w.zeta * c.graph_rel
             )
 
         ranked = sorted(pool.values(), key=lambda c: c.score, reverse=True)
