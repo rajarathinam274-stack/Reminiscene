@@ -51,6 +51,13 @@ class SchedulerConfig:
 class AIWorkloadScheduler:
     """Routes tasks to models/providers using capability metadata + measurement."""
 
+    # Tasks that have a deterministic, dependency-light builtin implementation
+    # used when no neural model is installed. These are labeled honestly as
+    # "builtin" (not neural inference) and remain CPU fallback-flagged.
+    BUILTIN_FALLBACKS = {
+        "embedding": "local-hash-tfidf-512",
+    }
+
     NON_MODEL_TASKS = {
         "pdf_parse": ("cpu", "PyMuPDF text/structure extraction"),
         "doc_parse": ("cpu", "python-docx / python-pptx parsing"),
@@ -108,7 +115,20 @@ class AIWorkloadScheduler:
             # routing target from the catalogue (status stays honest).
             # There is no runtime and no execution provider at all — we never
             # claim even a CPU EP for inference that does not happen.
+            # Exception: tasks with a deterministic builtin implementation
+            # (e.g. local embeddings via hashing TF-IDF) run on the builtin
+            # CPU runtime and are labeled as such.
             planned = self._planned_candidate(task)
+            builtin = self.BUILTIN_FALLBACKS.get(task)
+            if builtin is not None:
+                d = RoutingDecision(
+                    ts=now, task=task, model_id=builtin,
+                    runtime="builtin", execution_provider="CPUExecutionProvider",
+                    backend="cpu", accelerated=False, fallback=True,
+                    reason=f"No ONNX model installed for '{task}'; using builtin "
+                           f"deterministic fallback ({builtin}). Not neural inference.",
+                )
+                return self._record(d)
             d = RoutingDecision(
                 ts=now, task=task, model_id=planned.id if planned else None,
                 runtime="none", execution_provider="none", backend="none",

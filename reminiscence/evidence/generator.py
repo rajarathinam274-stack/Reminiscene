@@ -29,11 +29,18 @@ class Answer:
     evidence: list[dict] = field(default_factory=list)
     backend: str = ""            # which generator actually ran
     notes: str = ""
+    confidence: float = 0.0      # 0..1 — how well the answer is supported
+    support: str = "unavailable"  # directly_supported | inferred | uncertain | unavailable
+    model_id: str = ""
+    execution_provider: str = ""
 
     def to_json(self) -> str:
         return json.dumps(
             {"answer": self.answer, "grounded": self.grounded,
-             "evidence": self.evidence, "backend": self.backend, "notes": self.notes},
+             "evidence": self.evidence, "backend": self.backend, "notes": self.notes,
+             "confidence": round(self.confidence, 3), "support": self.support,
+             "model_id": self.model_id,
+             "execution_provider": self.execution_provider},
             ensure_ascii=False, indent=2,
         )
 

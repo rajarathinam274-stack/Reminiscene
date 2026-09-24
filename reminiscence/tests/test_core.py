@@ -295,11 +295,25 @@ class TestScheduler:
     def test_no_inference_when_no_model_installed(self):
         # Honest degradation: with no installed model there is no runtime and
         # no execution provider at all (not even a misleading CPU claim).
+        # Tasks without any builtin implementation (e.g. asr) must report
+        # runtime/EP "none" — we never claim inference that does not happen.
+        sch = AIWorkloadScheduler(ModelRegistry())
+        sch._qnn_verified = False
+        d = sch.route("asr")
+        assert d.runtime == "none" and d.execution_provider == "none"
+        assert d.fallback is True and not d.accelerated
+
+    def test_embedding_builtin_fallback_is_honest(self):
+        # Embeddings have a deterministic builtin fallback (hashing TF-IDF).
+        # When no neural model is installed the decision must be labeled
+        # "builtin", flagged as fallback, and never claim acceleration.
         sch = AIWorkloadScheduler(ModelRegistry())
         sch._qnn_verified = False
         d = sch.route("embedding")
-        assert d.runtime == "none" and d.execution_provider == "none"
+        assert d.runtime == "builtin"
+        assert d.model_id == "local-hash-tfidf-512"
         assert d.fallback is True and not d.accelerated
+        assert "Not neural inference" in d.reason
 
 
 # ---------------------------------------------------------------------------

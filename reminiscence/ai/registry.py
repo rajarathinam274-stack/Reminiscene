@@ -9,7 +9,7 @@ swapping implementations never touches retrieval/business logic.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from typing import Optional
 
 
@@ -130,8 +130,10 @@ DEFAULT_MODELS: list[ModelEntry] = [
 class ModelRegistry:
     def __init__(self, entries: Optional[list[ModelEntry]] = None):
         self._entries: dict[str, ModelEntry] = {}
-        for e in entries or DEFAULT_MODELS:
-            self.register(e)
+        # Always copy entries so per-instance status changes (install marking,
+        # benchmarks, tests) never mutate the shared DEFAULT_MODELS catalogue.
+        for e in (DEFAULT_MODELS if entries is None else entries):
+            self.register(replace(e))
 
     def register(self, entry: ModelEntry) -> None:
         self._entries[entry.id] = entry
