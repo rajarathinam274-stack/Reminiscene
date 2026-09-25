@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Generic helpers
@@ -36,23 +34,23 @@ def split_sentences(text: str) -> list[str]:
 @dataclass
 class Chunk:
     text: str
-    section: Optional[str] = None
-    page: Optional[int] = None
-    timestamp_start: Optional[float] = None
-    timestamp_end: Optional[float] = None
+    section: str | None = None
+    page: int | None = None
+    timestamp_start: float | None = None
+    timestamp_end: float | None = None
     concepts: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
 
 def _merge_blocks(
-    blocks: list[tuple[str, Optional[int]]],
+    blocks: list[tuple[str, int | None]],
     min_words: int,
     max_words: int,
-) -> list[tuple[str, Optional[int]]]:
+) -> list[tuple[str, int | None]]:
     """Merge adjacent (text, page) blocks so chunks land in [min,max] words."""
-    merged: list[tuple[str, Optional[int]]] = []
+    merged: list[tuple[str, int | None]] = []
     buf_text = ""
-    buf_pages: list[Optional[int]] = []
+    buf_pages: list[int | None] = []
 
     def flush():
         nonlocal buf_text, buf_pages
@@ -75,7 +73,7 @@ def _merge_blocks(
     return merged
 
 
-def _split_oversized(text: str, max_words: int, heading: Optional[str]) -> list[str]:
+def _split_oversized(text: str, max_words: int, heading: str | None) -> list[str]:
     """Split an oversized block on sentence boundaries keeping the heading."""
     sentences = split_sentences(text)
     pieces: list[str] = []
@@ -116,7 +114,7 @@ def looks_like_heading(line: str) -> bool:
     if len(words) == 0 or len(words) > _HEADING_MAX_WORDS:
         return False
     letters = [c for c in line if c.isalpha()]
-    if line.endswith(":") :
+    if line.endswith(":"):
         return True
     if letters and sum(c.isupper() for c in letters) / len(letters) > 0.7:
         return True
@@ -125,10 +123,10 @@ def looks_like_heading(line: str) -> bool:
     return titled >= 0.8 and len(words) <= 8
 
 
-def structure_text(text: str) -> list[tuple[Optional[str], str]]:
+def structure_text(text: str) -> list[tuple[str | None, str]]:
     """Return (heading, paragraph) pairs from raw extracted text."""
-    out: list[tuple[Optional[str], str]] = []
-    heading: Optional[str] = None
+    out: list[tuple[str | None, str]] = []
+    heading: str | None = None
     for block in _PARAGRAPH_BREAK_RE.split(text):
         block = block.strip()
         if not block:
@@ -153,7 +151,7 @@ def chunk_document_text(
     pairs = structure_text(text)
     blocks = [(body, None) for _, body in pairs]
     # Pre-split oversized blocks (keep heading prefix for context)
-    prepared: list[tuple[str, Optional[int]]] = []
+    prepared: list[tuple[str, int | None]] = []
     for (head, body), (_, page) in zip(pairs, blocks):
         if word_count(body) > max_words:
             prepared.extend((p, page) for p in _split_oversized(body, max_words, head))
@@ -172,15 +170,17 @@ def chunk_document_text(
 def chunk_pdf_pages(pages: list[str], min_words: int = 40, max_words: int = 220) -> list[Chunk]:
     """Chunk per-page extracted PDF text while preserving page numbers."""
     all_chunks: list[Chunk] = []
-    current_heading: Optional[str] = None
+    current_heading: str | None = None
     for page_no, page_text in enumerate(pages, start=1):
         pairs = structure_text(page_text)
-        prepared: list[tuple[str, Optional[int]]] = []
+        prepared: list[tuple[str, int | None]] = []
         for head, body in pairs:
             if head:
                 current_heading = head
             if word_count(body) > max_words:
-                prepared.extend((p, page_no) for p in _split_oversized(body, max_words, head or current_heading))
+                prepared.extend(
+                    (p, page_no) for p in _split_oversized(body, max_words, head or current_heading)
+                )
             else:
                 prepared.append((body, page_no))
         for text_, page in _merge_blocks(prepared, min_words, max_words):
@@ -198,12 +198,13 @@ def chunk_pdf_pages(pages: list[str], min_words: int = 40, max_words: int = 220)
 # Transcript chunking (audio / video)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Segment:
     start: float
     end: float
     text: str
-    speaker: Optional[str] = None
+    speaker: str | None = None
 
 
 def chunk_transcript(

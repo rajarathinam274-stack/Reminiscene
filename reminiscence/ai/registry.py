@@ -9,8 +9,7 @@ swapping implementations never touches retrieval/business logic.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict, replace
-from typing import Optional
+from dataclasses import asdict, dataclass, field, replace
 
 
 @dataclass
@@ -18,19 +17,19 @@ class ModelEntry:
     id: str
     name: str
     version: str
-    modality: str            # text | audio | image | video | any
-    task: str                # embedding | asr | ocr | vlm | llm | classifier
-    model_path: Optional[str] = None
+    modality: str  # text | audio | image | video | any
+    task: str  # embedding | asr | ocr | vlm | llm | classifier
+    model_path: str | None = None
     format: str = "onnx"
     quantization: str = "int8"
     runtime: str = "onnxruntime"
-    execution_provider: str = "auto"   # auto -> resolved at load time
+    execution_provider: str = "auto"  # auto -> resolved at load time
     supported_devices: list[str] = field(default_factory=lambda: ["cpu", "npu"])
     memory_requirement_mb: float = 0.0
-    expected_latency_ms: Optional[float] = None
+    expected_latency_ms: float | None = None
     license: str = "unknown"
-    status: str = "not_installed"      # available | not_installed | error
-    fallback_policy: str = "cpu"       # cpu | fail
+    status: str = "not_installed"  # available | not_installed | error
+    fallback_policy: str = "cpu"  # cpu | fail
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -97,7 +96,7 @@ DEFAULT_MODELS: list[ModelEntry] = [
         supported_devices=["npu", "cpu"],
         memory_requirement_mb=6000,
         license="apache-2.0",
-        fallback_policy="fail",   # never silently run a 7B VLM on CPU for stage 1
+        fallback_policy="fail",  # never silently run a 7B VLM on CPU for stage 1
     ),
     ModelEntry(
         id="llm-phi35-mini",
@@ -128,23 +127,23 @@ DEFAULT_MODELS: list[ModelEntry] = [
 
 
 class ModelRegistry:
-    def __init__(self, entries: Optional[list[ModelEntry]] = None):
+    def __init__(self, entries: list[ModelEntry] | None = None):
         self._entries: dict[str, ModelEntry] = {}
         # Always copy entries so per-instance status changes (install marking,
         # benchmarks, tests) never mutate the shared DEFAULT_MODELS catalogue.
-        for e in (DEFAULT_MODELS if entries is None else entries):
+        for e in DEFAULT_MODELS if entries is None else entries:
             self.register(replace(e))
 
     def register(self, entry: ModelEntry) -> None:
         self._entries[entry.id] = entry
 
-    def get(self, model_id: str) -> Optional[ModelEntry]:
+    def get(self, model_id: str) -> ModelEntry | None:
         return self._entries.get(model_id)
 
     def by_task(self, task: str) -> list[ModelEntry]:
         return [e for e in self._entries.values() if e.task == task]
 
-    def best_for(self, task: str, prefer_accelerated: bool = True) -> Optional[ModelEntry]:
+    def best_for(self, task: str, prefer_accelerated: bool = True) -> ModelEntry | None:
         """Select the smallest suitable *available* model for a task."""
         candidates = sorted(
             (e for e in self.by_task(task) if e.status == "available"),
@@ -163,28 +162,50 @@ class ModelRegistry:
                     format,quantization,runtime,execution_provider,supported_devices,
                     memory_requirement_mb,expected_latency_ms,license,status,fallback_policy)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (e.id, e.name, e.version, e.modality, e.task, e.model_path, e.format,
-                 e.quantization, e.runtime, e.execution_provider,
-                 json.dumps(e.supported_devices), e.memory_requirement_mb,
-                 e.expected_latency_ms, e.license, e.status, e.fallback_policy),
+                (
+                    e.id,
+                    e.name,
+                    e.version,
+                    e.modality,
+                    e.task,
+                    e.model_path,
+                    e.format,
+                    e.quantization,
+                    e.runtime,
+                    e.execution_provider,
+                    json.dumps(e.supported_devices),
+                    e.memory_requirement_mb,
+                    e.expected_latency_ms,
+                    e.license,
+                    e.status,
+                    e.fallback_policy,
+                ),
             )
         db._conn.commit()
 
     @staticmethod
-    def from_db(db) -> "ModelRegistry":
+    def from_db(db) -> ModelRegistry:
         rows = db._conn.execute("SELECT * FROM models").fetchall()
         reg = ModelRegistry(entries=[])
         for r in rows:
-            reg.register(ModelEntry(
-                id=r["id"], name=r["name"], version=r["version"] or "",
-                modality=r["modality"] or "any", task=r["task"],
-                model_path=r["model_path"], format=r["format"] or "onnx",
-                quantization=r["quantization"] or "fp32", runtime=r["runtime"] or "onnxruntime",
-                execution_provider=r["execution_provider"] or "auto",
-                supported_devices=json.loads(r["supported_devices"] or "[]"),
-                memory_requirement_mb=r["memory_requirement_mb"] or 0.0,
-                expected_latency_ms=r["expected_latency_ms"],
-                license=r["license"] or "unknown", status=r["status"] or "not_installed",
-                fallback_policy=r["fallback_policy"] or "cpu",
-            ))
+            reg.register(
+                ModelEntry(
+                    id=r["id"],
+                    name=r["name"],
+                    version=r["version"] or "",
+                    modality=r["modality"] or "any",
+                    task=r["task"],
+                    model_path=r["model_path"],
+                    format=r["format"] or "onnx",
+                    quantization=r["quantization"] or "fp32",
+                    runtime=r["runtime"] or "onnxruntime",
+                    execution_provider=r["execution_provider"] or "auto",
+                    supported_devices=json.loads(r["supported_devices"] or "[]"),
+                    memory_requirement_mb=r["memory_requirement_mb"] or 0.0,
+                    expected_latency_ms=r["expected_latency_ms"],
+                    license=r["license"] or "unknown",
+                    status=r["status"] or "not_installed",
+                    fallback_policy=r["fallback_policy"] or "cpu",
+                )
+            )
         return reg

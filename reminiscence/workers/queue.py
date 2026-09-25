@@ -13,11 +13,11 @@ import threading
 import time
 import traceback
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
-from queue import Queue, Empty
-from typing import Any, Callable, Optional
+from queue import Empty, Queue
+from typing import Any
 
 log = logging.getLogger("reminiscence.workers")
 
@@ -37,13 +37,13 @@ class Job:
     payload: dict[str, Any]
     stages: list[str]
     status: JobStatus = JobStatus.QUEUED
-    progress: float = 0.0                    # 0..1 overall
-    current_stage: Optional[str] = None
+    progress: float = 0.0  # 0..1 overall
+    current_stage: str | None = None
     completed_stages: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     result: Any = None
-    started_at: Optional[float] = None
-    finished_at: Optional[float] = None
+    started_at: float | None = None
+    finished_at: float | None = None
     cancelled: bool = False
 
     def elapsed_time(self) -> float:
@@ -73,7 +73,7 @@ HandlerFn = Callable[["Job", "JobContext"], Any]
 class JobContext:
     """Passed to handlers: report progress/stage, check cancellation."""
 
-    def __init__(self, job: Job, queue: "JobQueue"):
+    def __init__(self, job: Job, queue: JobQueue):
         self.job = job
         self._queue = queue
 
@@ -109,12 +109,12 @@ class JobCancelled(Exception):
 
 
 class JobQueue:
-    def __init__(self, n_workers: int = 2, on_update: Optional[Callable[[dict], None]] = None):
-        self._q: "Queue[Job]" = Queue()
+    def __init__(self, n_workers: int = 2, on_update: Callable[[dict], None] | None = None):
+        self._q: Queue[Job] = Queue()
         self._handlers: dict[str, HandlerFn] = {}
         self._jobs: dict[str, Job] = {}
         self._lock = threading.RLock()
-        self.on_update = on_update      # UI callback (thread-safe sink)
+        self.on_update = on_update  # UI callback (thread-safe sink)
         self._workers: list[threading.Thread] = []
         self._stop = threading.Event()
         for i in range(n_workers):
@@ -134,7 +134,7 @@ class JobQueue:
         self.notify(job)
         return job
 
-    def get(self, job_id: str) -> Optional[Job]:
+    def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
 
@@ -159,8 +159,10 @@ class JobQueue:
 
     def stats(self) -> list[dict]:
         with self._lock:
-            return [j.snapshot() for j in sorted(self._jobs.values(),
-                                                 key=lambda x: x.id, reverse=True)[:50]]
+            return [
+                j.snapshot()
+                for j in sorted(self._jobs.values(), key=lambda x: x.id, reverse=True)[:50]
+            ]
 
     def shutdown(self) -> None:
         self._stop.set()

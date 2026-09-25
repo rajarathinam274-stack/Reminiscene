@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from .registry import ModelEntry, ModelRegistry
-from .runtime import OnnxRuntimeAdapter, RuntimeInfo
+from .runtime import OnnxRuntimeAdapter
 
 log = logging.getLogger("reminiscence.scheduler")
 
@@ -24,7 +23,7 @@ log = logging.getLogger("reminiscence.scheduler")
 class RoutingDecision:
     ts: str
     task: str
-    model_id: Optional[str]
+    model_id: str | None
     runtime: str
     execution_provider: str
     backend: str
@@ -39,7 +38,7 @@ class RoutingDecision:
 @dataclass
 class SchedulerConfig:
     # Explicit opt-in switches; defaults keep heavy paths off.
-    allow_vlm: bool = False            # stage-2 visual reasoning only on demand
+    allow_vlm: bool = False  # stage-2 visual reasoning only on demand
     prefer_npu_tasks: list[str] = field(
         default_factory=lambda: ["embedding", "asr", "ocr", "classifier"]
     )
@@ -65,11 +64,11 @@ class AIWorkloadScheduler:
         "vector_search": ("cpu", "embedded ANN (BLAS matmul)"),
     }
 
-    def __init__(self, registry: ModelRegistry, config: Optional[SchedulerConfig] = None):
+    def __init__(self, registry: ModelRegistry, config: SchedulerConfig | None = None):
         self.registry = registry
         self.config = config or SchedulerConfig()
         self.decisions: list[RoutingDecision] = []
-        self._qnn_verified: Optional[bool] = None
+        self._qnn_verified: bool | None = None
 
     # ------------------------------------------------------------------
     @property
@@ -84,30 +83,50 @@ class AIWorkloadScheduler:
         self.decisions.append(d)
         log.info(
             "route task=%s model=%s ep=%s backend=%s fallback=%s reason=%s",
-            d.task, d.model_id, d.execution_provider, d.backend, d.fallback, d.reason,
+            d.task,
+            d.model_id,
+            d.execution_provider,
+            d.backend,
+            d.fallback,
+            d.reason,
         )
         return d
 
     # ------------------------------------------------------------------
     def route(self, task: str, require_acceleration: bool = False) -> RoutingDecision:
-        now = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        now = datetime.now(UTC).isoformat(timespec="milliseconds")
 
         if task in self.NON_MODEL_TASKS:
             backend, reason = self.NON_MODEL_TASKS[task]
-            return self._record(RoutingDecision(
-                ts=now, task=task, model_id=None, runtime="builtin",
-                execution_provider="CPUExecutionProvider", backend=backend,
-                accelerated=False, fallback=False, reason=reason,
-            ))
+            return self._record(
+                RoutingDecision(
+                    ts=now,
+                    task=task,
+                    model_id=None,
+                    runtime="builtin",
+                    execution_provider="CPUExecutionProvider",
+                    backend=backend,
+                    accelerated=False,
+                    fallback=False,
+                    reason=reason,
+                )
+            )
 
         if task == "vlm" and not self.config.allow_vlm:
             # Stage 1 policy: do NOT run a large VLM by default.
-            return self._record(RoutingDecision(
-                ts=now, task=task, model_id=None, runtime="none",
-                execution_provider="none", backend="deferred",
-                accelerated=False, fallback=False,
-                reason="VLM disabled by tiered-vision policy; use OCR stage first",
-            ))
+            return self._record(
+                RoutingDecision(
+                    ts=now,
+                    task=task,
+                    model_id=None,
+                    runtime="none",
+                    execution_provider="none",
+                    backend="deferred",
+                    accelerated=False,
+                    fallback=False,
+                    reason="VLM disabled by tiered-vision policy; use OCR stage first",
+                )
+            )
 
         entry = self.registry.best_for(task)
         if entry is None:
@@ -122,49 +141,84 @@ class AIWorkloadScheduler:
             builtin = self.BUILTIN_FALLBACKS.get(task)
             if builtin is not None:
                 d = RoutingDecision(
-                    ts=now, task=task, model_id=builtin,
-                    runtime="builtin", execution_provider="CPUExecutionProvider",
-                    backend="cpu", accelerated=False, fallback=True,
+                    ts=now,
+                    task=task,
+                    model_id=builtin,
+                    runtime="builtin",
+                    execution_provider="CPUExecutionProvider",
+                    backend="cpu",
+                    accelerated=False,
+                    fallback=True,
                     reason=f"No ONNX model installed for '{task}'; using builtin "
-                           f"deterministic fallback ({builtin}). Not neural inference.",
+                    f"deterministic fallback ({builtin}). Not neural inference.",
                 )
                 return self._record(d)
             d = RoutingDecision(
-                ts=now, task=task, model_id=planned.id if planned else None,
-                runtime="none", execution_provider="none", backend="none",
-                accelerated=False, fallback=True,
+                ts=now,
+                task=task,
+                model_id=planned.id if planned else None,
+                runtime="none",
+                execution_provider="none",
+                backend="none",
+                accelerated=False,
+                fallback=True,
                 reason=f"No installed model for task '{task}'. "
-                       "Offer setup path; feature degrades gracefully.",
+                "Offer setup path; feature degrades gracefully.",
             )
             if require_acceleration:
                 raise RuntimeError(d.reason)
             return self._record(d)
 
-        want_npu = self.npu_available and task in self.config.prefer_npu_tasks \
+        want_npu = (
+            self.npu_available
+            and task in self.config.prefer_npu_tasks
             and "npu" in entry.supported_devices
+        )
         ep = "QNNExecutionProvider" if want_npu else "CPUExecutionProvider"
         backend = "HTP" if want_npu else "cpu"
         fallback = (not want_npu) and ("npu" in entry.supported_devices)
-        reason = ("NPU verified via QNN EP" if want_npu
-                  else "CPU fallback: NPU not verified/not preferred for task")
+        reason = (
+            "NPU verified via QNN EP"
+            if want_npu
+            else "CPU fallback: NPU not verified/not preferred for task"
+        )
         if require_acceleration and not want_npu:
             msg = f"Benchmark requires accelerated path for '{task}' but NPU unavailable."
-            self._record(RoutingDecision(now, task, entry.id, entry.runtime, "CPUExecutionProvider",
-                                         "cpu", False, True, msg))
+            self._record(
+                RoutingDecision(
+                    now,
+                    task,
+                    entry.id,
+                    entry.runtime,
+                    "CPUExecutionProvider",
+                    "cpu",
+                    False,
+                    True,
+                    msg,
+                )
+            )
             raise RuntimeError(msg)
-        return self._record(RoutingDecision(
-            ts=now, task=task, model_id=entry.id, runtime=entry.runtime,
-            execution_provider=ep, backend=backend, accelerated=want_npu,
-            fallback=fallback, reason=reason,
-        ))
+        return self._record(
+            RoutingDecision(
+                ts=now,
+                task=task,
+                model_id=entry.id,
+                runtime=entry.runtime,
+                execution_provider=ep,
+                backend=backend,
+                accelerated=want_npu,
+                fallback=fallback,
+                reason=reason,
+            )
+        )
 
     # ------------------------------------------------------------------
-    def _planned_candidate(self, task: str) -> Optional[ModelEntry]:
+    def _planned_candidate(self, task: str) -> ModelEntry | None:
         """Catalogue entry for a task regardless of install status."""
         cands = sorted(self.registry.by_task(task), key=lambda e: e.memory_requirement_mb)
         return cands[0] if cands else None
 
-    def select_model(self, task: str) -> Optional[ModelEntry]:
+    def select_model(self, task: str) -> ModelEntry | None:
         return self.registry.best_for(task)
 
     def describe(self) -> list[dict]:

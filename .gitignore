@@ -1,6 +1,10 @@
-# Compiled/Binary files
 __pycache__/
 *.pyc
-
-# Logs and temp files
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+data/
 *.log

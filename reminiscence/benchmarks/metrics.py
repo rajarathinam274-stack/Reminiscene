@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 
 def recall_at_k(ranked_ids: Sequence[str], relevant_ids: set[str], k: int) -> float:

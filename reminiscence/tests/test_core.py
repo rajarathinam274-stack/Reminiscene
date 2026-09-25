@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -20,19 +20,19 @@ from reminiscence.ai.embeddings.embedder import HashingTFIDFEmbedder
 from reminiscence.ai.registry import ModelRegistry
 from reminiscence.ai.scheduler import AIWorkloadScheduler
 from reminiscence.app.services.engine import EnginePaths, ReminiscenceEngine
-from reminiscence.evidence.generator import ExtractiveGroundedAnswerer
 from reminiscence.evidence.resolver import EvidenceResolver
-from reminiscence.memory.chunking import (Chunk, Segment, chunk_document_text,
-                                          chunk_pdf_pages, chunk_transcript)
+from reminiscence.ingestion.pipeline import EXTRACTION_VERSION, PIPELINE_VERSION, source_id_for
+from reminiscence.memory.chunking import (
+    Segment,
+    chunk_document_text,
+    chunk_pdf_pages,
+    chunk_transcript,
+)
 from reminiscence.memory.events import MemoryEvent, Modality, Region, format_timestamp
-from reminiscence.retrieval.hybrid import HybridRetriever, RetrievalWeights
+from reminiscence.retrieval.hybrid import RetrievalWeights
 from reminiscence.retrieval.query_classifier import QueryCategory, QueryClassifier
 from reminiscence.storage.database import Database
 from reminiscence.storage.vector_index import NumpyVectorIndex
-from reminiscence.ingestion.pipeline import (EXTRACTION_VERSION, PIPELINE_VERSION,
-                                      source_id_for)
-from reminiscence.workers.queue import JobQueue
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / sample content
@@ -68,8 +68,7 @@ TRANSCRIPT_SEGMENTS = [
 
 @pytest.fixture()
 def tmp_engine(tmp_path):
-    paths = EnginePaths(tmp_path / "data", tmp_path / "data" / "db.sqlite",
-                        tmp_path / "models")
+    paths = EnginePaths(tmp_path / "data", tmp_path / "data" / "db.sqlite", tmp_path / "models")
     engine = ReminiscenceEngine(paths=paths)
     yield engine
     engine.close()
@@ -88,12 +87,18 @@ def seeded_engine(tmp_engine):
 # Memory events & serialization
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryEvents:
     def test_roundtrip(self):
         ev = MemoryEvent(
-            source_id="s1", modality=Modality.VIDEO, content="hello",
-            timestamp_start=732.4, timestamp_end=761.8, page=None,
-            location=Region(124, 86, 540, 132), concepts=["attention"],
+            source_id="s1",
+            modality=Modality.VIDEO,
+            content="hello",
+            timestamp_start=732.4,
+            timestamp_end=761.8,
+            page=None,
+            location=Region(124, 86, 540, 132),
+            concepts=["attention"],
             metadata={"k": 1},
         )
         back = MemoryEvent.deserialize(ev.serialize())
@@ -111,13 +116,15 @@ class TestMemoryEvents:
         assert format_timestamp(75.25) == "01:15.25"
 
     def test_region_iou(self):
-        a = Region(0, 0, 10, 10); b = Region(5, 0, 15, 10)
+        a = Region(0, 0, 10, 10)
+        b = Region(5, 0, 15, 10)
         assert 0.3 < a.intersection_over_union(b) < 0.7
 
 
 # ---------------------------------------------------------------------------
 # Chunking
 # ---------------------------------------------------------------------------
+
 
 class TestChunking:
     def test_structural_chunks_have_sections_and_pages(self):
@@ -139,8 +146,10 @@ class TestChunking:
             assert c.timestamp_end >= c.timestamp_start
 
     def test_speaker_concepts(self):
-        segs = [Segment(0, 2, "first speaker line here enough words to keep going ok", "A"),
-                Segment(2, 4, "second speaker replies with plenty of words too here", "B")]
+        segs = [
+            Segment(0, 2, "first speaker line here enough words to keep going ok", "A"),
+            Segment(2, 4, "second speaker replies with plenty of words too here", "B"),
+        ]
         chunks = chunk_transcript(segs, min_words=5)
         assert any("speaker:A" in c.concepts for c in chunks)
 
@@ -148,6 +157,7 @@ class TestChunking:
 # ---------------------------------------------------------------------------
 # Storage: SQLite + FTS5
 # ---------------------------------------------------------------------------
+
 
 class TestDatabase:
     def test_fts_bm25_ranking(self, tmp_path):
@@ -173,8 +183,9 @@ class TestDatabase:
         db.set_setting("retrieval_weights", {"alpha": 0.5})
         assert db.get_setting("retrieval_weights")["alpha"] == 0.5
         db.create_job("j1", "ingest", ["a", "b"], "/x/y.pdf")
-        db.update_job("j1", status="running", progress=0.5, current_stage="b",
-                      completed_stages=["a"])
+        db.update_job(
+            "j1", status="running", progress=0.5, current_stage="b", completed_stages=["a"]
+        )
         job = db.get_job("j1")
         assert job["status"] == "running" and job["progress"] == 0.5
         db.cancel_job("j1")
@@ -185,6 +196,7 @@ class TestDatabase:
 # ---------------------------------------------------------------------------
 # Vector index
 # ---------------------------------------------------------------------------
+
 
 class TestVectorIndex:
     def test_cosine_ordering(self):
@@ -197,7 +209,7 @@ class TestVectorIndex:
     def test_update_in_place_and_filter(self):
         idx = NumpyVectorIndex(dim=2)
         idx.add(["x", "y"], np.array([[1, 0], [0, 1]], np.float32))
-        idx.add(["x"], np.array([[0, 1]], np.float32))   # update x
+        idx.add(["x"], np.array([[0, 1]], np.float32))  # update x
         assert len(idx) == 2
         res = idx.search(np.array([0, 1], np.float32), k=2, allowed_ids={"x"})
         assert [i for i, _ in res] == ["x"]
@@ -213,6 +225,7 @@ class TestVectorIndex:
 # ---------------------------------------------------------------------------
 # Embeddings
 # ---------------------------------------------------------------------------
+
 
 class TestEmbedder:
     def test_deterministic_and_normalized(self):
@@ -234,6 +247,7 @@ class TestEmbedder:
 # Query classification
 # ---------------------------------------------------------------------------
 
+
 class TestQueryClassifier:
     def setup_method(self):
         self.clf = QueryClassifier()
@@ -244,8 +258,9 @@ class TestQueryClassifier:
         assert QueryCategory.SOURCE_LOOKUP in cq.categories
 
     def test_temporal_cross_source(self):
-        from datetime import datetime, timezone, timedelta
-        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        from datetime import datetime
+
+        now = datetime(2026, 9, 23, tzinfo=UTC)
         cq = self.clf.classify("What did I learn about transformers last month?", now=now)
         assert QueryCategory.TEMPORAL_LOOKUP in cq.categories
         assert cq.time_range is not None
@@ -264,6 +279,7 @@ class TestQueryClassifier:
 # ---------------------------------------------------------------------------
 # Scheduler & registry
 # ---------------------------------------------------------------------------
+
 
 class TestScheduler:
     def test_cpu_only_tasks_routed_to_builtin(self):
@@ -294,7 +310,7 @@ class TestScheduler:
         if not sch.npu_available:
             d = sch.route("embedding")
             assert d.execution_provider == "CPUExecutionProvider"
-            assert d.fallback is True   # honest labeling of CPU fallback
+            assert d.fallback is True  # honest labeling of CPU fallback
 
     def test_no_inference_when_no_model_installed(self):
         # Honest degradation: with no installed model there is no runtime and
@@ -324,6 +340,7 @@ class TestScheduler:
 # Hybrid retrieval (integration)
 # ---------------------------------------------------------------------------
 
+
 class TestHybridRetrieval:
     def test_relevance_ranking(self, seeded_engine):
         results = seeded_engine.search("why is self attention computationally expensive", top_k=5)
@@ -347,6 +364,7 @@ class TestHybridRetrieval:
 # ---------------------------------------------------------------------------
 # Evidence + answers
 # ---------------------------------------------------------------------------
+
 
 class TestEvidenceAndAnswers:
     def test_evidence_resolves_to_source(self, seeded_engine):
@@ -378,6 +396,7 @@ class TestEvidenceAndAnswers:
 # Ingestion pipeline (documents end-to-end)
 # ---------------------------------------------------------------------------
 
+
 class TestIngestion:
     def test_markdown_end_to_end(self, tmp_engine):
         f = tmp_engine.paths.data_dir / "doc.md"
@@ -403,6 +422,7 @@ class TestIngestion:
 
     def test_background_job_progress(self, tmp_engine):
         import time
+
         f = tmp_engine.paths.data_dir / "async_note.md"
         f.write_text(PDF_TEXT, encoding="utf-8")
         updates = []
@@ -424,12 +444,14 @@ class TestIngestion:
 # Offline validation (no network usage anywhere in core flow)
 # ---------------------------------------------------------------------------
 
+
 class TestOffline:
     def test_core_flow_without_network(self, monkeypatch, tmp_path):
         import socket
 
         def guard(*a, **k):
             raise AssertionError("Network access attempted during offline test!")
+
         monkeypatch.setattr(socket.socket, "connect", guard)
         monkeypatch.setattr(socket, "create_connection", guard)
 
@@ -448,8 +470,7 @@ class TestOffline:
 
 
 def _make_engine(tmp_path):
-    paths = EnginePaths(tmp_path / "data", tmp_path / "data" / "db.sqlite",
-                        tmp_path / "models")
+    paths = EnginePaths(tmp_path / "data", tmp_path / "data" / "db.sqlite", tmp_path / "models")
     return ReminiscenceEngine(paths=paths)
 
 
@@ -457,21 +478,28 @@ def _make_engine(tmp_path):
 # Phase 14 — Release Hardening regressions (data foundation correctness)
 # ---------------------------------------------------------------------------
 
+
 class TestPhase14DataFoundation:
     def test_migration_v3_upgrades_existing_db(self, tmp_path):
         """A v2 database must upgrade non-destructively to v3."""
         db_path = str(tmp_path / "up.db")
         db = Database(db_path)
-        assert db.get_schema_version() == 3
+        assert db.get_schema_version() == 4
         src = source_id_for(tmp_path)
         db.upsert_source(src, str(tmp_path / "a.txt"), "a.txt", Modality.DOCUMENT)
-        ev = MemoryEvent(id="e1", source_id=src, modality=Modality.DOCUMENT,
-                         content="transformer attention notes",
-                         event_time_start="2022-12-25T18:30:00+00:00",
-                         captured_at="2022-12-25T20:14:00+00:00",
-                         time_source="exif", time_confidence=0.95,
-                         extraction_version="1.0", embedding_version="hash-tfidf",
-                         pipeline_version="1.0")
+        ev = MemoryEvent(
+            id="e1",
+            source_id=src,
+            modality=Modality.DOCUMENT,
+            content="transformer attention notes",
+            event_time_start="2022-12-25T18:30:00+00:00",
+            captured_at="2022-12-25T20:14:00+00:00",
+            time_source="exif",
+            time_confidence=0.95,
+            extraction_version="1.0",
+            embedding_version="hash-tfidf",
+            pipeline_version="1.0",
+        )
         db.add_event(ev)
         got = db.get_event("e1")
         assert got.event_time_start.startswith("2022-12-25")
@@ -480,7 +508,7 @@ class TestPhase14DataFoundation:
         # reopen: user_version persisted at 3, data intact
         db.close()
         db2 = Database(db_path)
-        assert db2.get_schema_version() == 3
+        assert db2.get_schema_version() == 4
         assert db2.get_event("e1") is not None
         db2.close()
 
@@ -497,8 +525,8 @@ class TestPhase14DataFoundation:
             r1 = engine.pipeline.ingest(orig)
             assert r1.events_created > 0
             r2 = engine.pipeline.ingest(moved)
-            assert r2.source_id == r1.source_id          # deduped by SHA-256
-            assert r2.events_created == 0                # no duplicate memories
+            assert r2.source_id == r1.source_id  # deduped by SHA-256
+            assert r2.events_created == 0  # no duplicate memories
             assert any("moved/copied" in w for w in r2.warnings)
             row = engine.db.get_source(r1.source_id)
             assert row["current_path"] == str(moved.resolve())  # location refreshed
@@ -512,17 +540,22 @@ class TestPhase14DataFoundation:
         try:
             src = "s-dec"
             engine.db.upsert_source(src, "/x/photo.jpg", "photo.jpg", Modality.IMAGE)
-            old = MemoryEvent(id="dec22", source_id=src, modality=Modality.IMAGE,
-                              content="beach sunset photo",
-                              event_time_start="2022-12-14T10:00:00+00:00",
-                              captured_at="2022-12-14T10:00:00+00:00",
-                              time_source="exif")
-            recent = MemoryEvent(id="now", source_id=src, modality=Modality.IMAGE,
-                                 content="today's screenshot")  # created_at = now
+            old = MemoryEvent(
+                id="dec22",
+                source_id=src,
+                modality=Modality.IMAGE,
+                content="beach sunset photo",
+                event_time_start="2022-12-14T10:00:00+00:00",
+                captured_at="2022-12-14T10:00:00+00:00",
+                time_source="exif",
+            )
+            recent = MemoryEvent(
+                id="now", source_id=src, modality=Modality.IMAGE, content="today's screenshot"
+            )  # created_at = now
             engine.db.add_event(old)
             engine.db.add_event(recent)
-            start = datetime(2022, 12, 1, tzinfo=timezone.utc)
-            end = datetime(2022, 12, 31, 23, 59, tzinfo=timezone.utc)
+            start = datetime(2022, 12, 1, tzinfo=UTC)
+            end = datetime(2022, 12, 31, 23, 59, tzinfo=UTC)
             hits = {e.id for e in engine.db.events_in_range(start.isoformat(), end.isoformat())}
             assert "dec22" in hits and "now" not in hits
         finally:
@@ -534,15 +567,26 @@ class TestPhase14DataFoundation:
         try:
             src = "s-cal"
             engine.db.upsert_source(src, "/x/p.jpg", "p.jpg", Modality.IMAGE)
-            engine.db.add_event(MemoryEvent(
-                id="old-photo", source_id=src, modality=Modality.IMAGE,
-                content="photos from the temple festival",
-                event_time_start="2022-12-20T09:00:00+00:00",
-                captured_at="2022-12-20T09:00:00+00:00", time_source="exif"))
-            engine.db.add_event(MemoryEvent(
-                id="new-photo", source_id=src, modality=Modality.IMAGE,
-                content="photos from the temple festival, summer revisit",
-                event_time_start="2024-07-01T09:00:00+00:00"))
+            engine.db.add_event(
+                MemoryEvent(
+                    id="old-photo",
+                    source_id=src,
+                    modality=Modality.IMAGE,
+                    content="photos from the temple festival",
+                    event_time_start="2022-12-20T09:00:00+00:00",
+                    captured_at="2022-12-20T09:00:00+00:00",
+                    time_source="exif",
+                )
+            )
+            engine.db.add_event(
+                MemoryEvent(
+                    id="new-photo",
+                    source_id=src,
+                    modality=Modality.IMAGE,
+                    content="photos from the temple festival, summer revisit",
+                    event_time_start="2024-07-01T09:00:00+00:00",
+                )
+            )
             cq = QueryClassifier().classify("what photos did I take in December 2022?")
             assert cq.time_range is not None
             assert cq.time_range[0].year == 2022 and cq.time_range[0].month == 12
@@ -550,7 +594,7 @@ class TestPhase14DataFoundation:
             results = engine.retriever.retrieve(cq, top_k=5)
             ids = [c.event.id for c in results]
             assert "old-photo" in ids
-            assert "new-photo" not in ids   # hard temporal filter
+            assert "new-photo" not in ids  # hard temporal filter
         finally:
             engine.close()
 
@@ -560,21 +604,29 @@ class TestPhase14DataFoundation:
         try:
             src = "s-g"
             engine.db.upsert_source(src, "/x/meeting.txt", "meeting.txt", Modality.DOCUMENT)
-            m1 = MemoryEvent(id="m1", source_id=src, modality=Modality.DOCUMENT,
-                             content="quarterly planning discussion recap")
-            m2 = MemoryEvent(id="m2", source_id=src, modality=Modality.DOCUMENT,
-                             content="lunch menu ideas")
-            engine.db.add_event(m1); engine.db.add_event(m2)
-            engine.db.link_entity("m1", "person", "alex", "MENTIONS",
-                                  confidence=0.9, method="rule", evidence_id="m1")
+            m1 = MemoryEvent(
+                id="m1",
+                source_id=src,
+                modality=Modality.DOCUMENT,
+                content="quarterly planning discussion recap",
+            )
+            m2 = MemoryEvent(
+                id="m2", source_id=src, modality=Modality.DOCUMENT, content="lunch menu ideas"
+            )
+            engine.db.add_event(m1)
+            engine.db.add_event(m2)
+            engine.db.link_entity(
+                "m1", "person", "alex", "MENTIONS", confidence=0.9, method="rule", evidence_id="m1"
+            )
+
             def resolver(low: str) -> dict:
                 return {"person": ["alex"]} if "alex" in low else {}
-            cq = QueryClassifier(entity_resolver=resolver).classify(
-                "notes from meeting with alex")
+
+            cq = QueryClassifier(entity_resolver=resolver).classify("notes from meeting with alex")
             assert cq.entities.get("person") == ["alex"]
             results = engine.retriever.retrieve(cq, top_k=5)
             ids = [c.event.id for c in results]
-            assert "m1" in ids                       # graph candidate entered pool
+            assert "m1" in ids  # graph candidate entered pool
             g = next(c for c in results if c.event.id == "m1")
             assert g.graph_rel > 0 and "graph" in g.channels
         finally:

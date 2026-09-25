@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import numpy as np
 
@@ -22,8 +21,9 @@ class VectorIndex(ABC):
     def add(self, ids: list[str], vectors: np.ndarray) -> None: ...
 
     @abstractmethod
-    def search(self, query: np.ndarray, k: int = 10,
-               allowed_ids: Optional[set[str]] = None) -> list[tuple[str, float]]: ...
+    def search(
+        self, query: np.ndarray, k: int = 10, allowed_ids: set[str] | None = None
+    ) -> list[tuple[str, float]]: ...
 
     @abstractmethod
     def remove(self, ids: list[str]) -> None: ...
@@ -44,14 +44,14 @@ def l2_normalize(v: np.ndarray) -> np.ndarray:
 class NumpyVectorIndex(VectorIndex):
     """Exact cosine-similarity index stored as a contiguous matrix."""
 
-    def __init__(self, dim: Optional[int] = None):
+    def __init__(self, dim: int | None = None):
         self._dim = dim
         self._ids: list[str] = []
-        self._matrix: Optional[np.ndarray] = None  # normalized rows
+        self._matrix: np.ndarray | None = None  # normalized rows
         self._lock = threading.RLock()
 
     @property
-    def dim(self) -> Optional[int]:
+    def dim(self) -> int | None:
         return self._dim
 
     def add(self, ids: list[str], vectors: np.ndarray) -> None:
@@ -87,8 +87,9 @@ class NumpyVectorIndex(VectorIndex):
             for j in np.nonzero(new_mask)[0]:
                 self._ids.append(ids[int(j)])
 
-    def search(self, query: np.ndarray, k: int = 10,
-               allowed_ids: Optional[set[str]] = None) -> list[tuple[str, float]]:
+    def search(
+        self, query: np.ndarray, k: int = 10, allowed_ids: set[str] | None = None
+    ) -> list[tuple[str, float]]:
         q = np.asarray(query, dtype=np.float32)
         if q.ndim != 1:
             raise ValueError("query must be 1-D")
@@ -120,11 +121,11 @@ class NumpyVectorIndex(VectorIndex):
             if self._matrix is not None:
                 self._matrix = self._matrix[keep] if keep else self._matrix[:0]
 
-    def state(self) -> tuple[list[str], Optional[np.ndarray]]:
+    def state(self) -> tuple[list[str], np.ndarray | None]:
         with self._lock:
             return list(self._ids), (None if self._matrix is None else self._matrix.copy())
 
-    def load_state(self, ids: list[str], matrix: Optional[np.ndarray]) -> None:
+    def load_state(self, ids: list[str], matrix: np.ndarray | None) -> None:
         with self._lock:
             self._ids = list(ids)
             self._matrix = None if matrix is None else np.asarray(matrix, dtype=np.float32)

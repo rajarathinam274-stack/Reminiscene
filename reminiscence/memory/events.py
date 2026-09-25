@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class Modality(str, Enum):
     PDF = "pdf"
-    DOCUMENT = "document"   # docx / pptx / txt / markdown
+    DOCUMENT = "document"  # docx / pptx / txt / markdown
     AUDIO = "audio"
     VIDEO = "video"
-    IMAGE = "image"         # photos, screenshots
+    IMAGE = "image"  # photos, screenshots
     NOTE = "note"
 
 
@@ -36,14 +36,14 @@ class Region:
         return {"bbox": [self.x0, self.y0, self.x1, self.y1]}
 
     @staticmethod
-    def from_dict(d: dict) -> "Region":
+    def from_dict(d: dict) -> Region:
         b = d["bbox"]
         return Region(b[0], b[1], b[2], b[3])
 
     def area(self) -> float:
         return max(0.0, self.x1 - self.x0) * max(0.0, self.y1 - self.y0)
 
-    def intersection_over_union(self, other: "Region") -> float:
+    def intersection_over_union(self, other: Region) -> float:
         ix0, iy0 = max(self.x0, other.x0), max(self.y0, other.y0)
         ix1, iy1 = min(self.x1, other.x1), min(self.y1, other.y1)
         inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
@@ -57,46 +57,46 @@ class MemoryEvent:
     source_id: str = ""
     modality: Modality = Modality.DOCUMENT
     content: str = ""
-    embedding: Optional[list[float]] = None
+    embedding: list[float] | None = None
 
     # Temporal evidence (audio/video)
-    timestamp_start: Optional[float] = None
-    timestamp_end: Optional[float] = None
+    timestamp_start: float | None = None
+    timestamp_end: float | None = None
 
     # Structural evidence (documents)
-    page: Optional[int] = None
-    section: Optional[str] = None
+    page: int | None = None
+    section: str | None = None
 
     # Spatial evidence (images/screenshots/PDF regions)
-    location: Optional[Region] = None
+    location: Region | None = None
 
     concepts: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    parent_event: Optional[str] = None
+    parent_event: str | None = None
 
-    created_at: Optional[str] = None  # ISO string; set by persistence layer
+    created_at: str | None = None  # ISO string; set by persistence layer
 
     # -- Phase 14 (P2): explicit temporal semantics -----------------------
     # created_at is the INDEXING time. It must never be used as a stand-in
     # for when the memory actually happened or was captured:
     #   photo taken 2022-12-14, imported 2026-09-24  ->  event/capture time
     #   is 2022-12-14; "memories from December 2022" queries must use it.
-    event_time_start: Optional[str] = None   # ISO; when the remembered thing occurred
-    event_time_end: Optional[str] = None     # ISO; end of the occurrence if bounded
-    captured_at: Optional[str] = None        # ISO; when media/file was captured (EXIF/mtime)
-    modified_at: Optional[str] = None        # ISO; last modification of the underlying content
-    time_source: Optional[str] = None        # exif | filename | transcript | import | manual | inferred
-    time_confidence: float = 1.0             # 0..1 — how sure we are about event/capture time
+    event_time_start: str | None = None  # ISO; when the remembered thing occurred
+    event_time_end: str | None = None  # ISO; end of the occurrence if bounded
+    captured_at: str | None = None  # ISO; when media/file was captured (EXIF/mtime)
+    modified_at: str | None = None  # ISO; last modification of the underlying content
+    time_source: str | None = None  # exif | filename | transcript | import | manual | inferred
+    time_confidence: float = 1.0  # 0..1 — how sure we are about event/capture time
 
     # -- Phase 14 (P2): reproducibility / incremental re-indexing ----------
     # Every processed memory must be traceable to the exact pipeline and
     # model versions that produced it (debugging + benchmark reproducibility).
-    extraction_version: Optional[str] = None
-    embedding_version: Optional[str] = None
-    pipeline_version: Optional[str] = None
+    extraction_version: str | None = None
+    embedding_version: str | None = None
+    pipeline_version: str | None = None
 
     # ------------------------------------------------------------------
-    def effective_event_time(self) -> Optional[str]:
+    def effective_event_time(self) -> str | None:
         """Best available *memory* timestamp (never silently indexing time)."""
         return self.event_time_start or self.captured_at or self.created_at
 
@@ -108,7 +108,7 @@ class MemoryEvent:
         return d
 
     @staticmethod
-    def from_dict(d: dict) -> "MemoryEvent":
+    def from_dict(d: dict) -> MemoryEvent:
         d = dict(d)
         if d.get("location"):
             d["location"] = Region.from_dict(d["location"])
@@ -121,11 +121,11 @@ class MemoryEvent:
         return json.dumps(self.to_dict(), ensure_ascii=False)
 
     @staticmethod
-    def deserialize(s: str) -> "MemoryEvent":
+    def deserialize(s: str) -> MemoryEvent:
         return MemoryEvent.from_dict(json.loads(s))
 
     # ------------------------------------------------------------------
-    def time_range(self) -> Optional[tuple[float, float]]:
+    def time_range(self) -> tuple[float, float] | None:
         if self.timestamp_start is None:
             return None
         end = self.timestamp_end if self.timestamp_end is not None else self.timestamp_start

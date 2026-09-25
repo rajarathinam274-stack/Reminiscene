@@ -8,19 +8,21 @@ only references are stored here.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 from ..memory.events import MemoryEvent, Modality, Region
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 _MIGRATIONS: dict[int, list[str]] = {
@@ -300,6 +302,33 @@ _MIGRATIONS: dict[int, list[str]] = {
         """,
         "CREATE INDEX IF NOT EXISTS idx_ir_model ON inference_records(model_id, started_at)",
     ],
+    # Sprint 2 (MediaStore): canonical content-addressed media references.
+    # Expand-only migration; no destructive changes to prior schema.
+    4: [
+        """
+        CREATE TABLE IF NOT EXISTS media_assets (
+            asset_id TEXT PRIMARY KEY,
+            source_id TEXT REFERENCES sources(id) ON DELETE CASCADE,
+            media_key TEXT NOT NULL,          -- relative key inside MediaStore
+            sha256 TEXT NOT NULL,             -- content identity
+            media_type TEXT NOT NULL,         -- original | thumbnail | derived
+            mime_type TEXT,
+            size_bytes INTEGER,
+            width INTEGER,
+            height INTEGER,
+            duration_seconds REAL,
+            frame_rate REAL,
+            audio_channels INTEGER,
+            parent_asset_id TEXT REFERENCES media_assets(asset_id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            metadata TEXT NOT NULL DEFAULT '{}'
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_ma_source ON media_assets(source_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ma_sha ON media_assets(sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_ma_type ON media_assets(media_type)",
+        "ALTER TABLE sources ADD COLUMN media_key TEXT",
+    ],
 }
 
 
@@ -310,7 +339,7 @@ def _vec_to_blob(v: Iterable[float]) -> bytes:
     return a.tobytes()
 
 
-def _blob_to_vec(b: Optional[bytes]) -> Optional[list[float]]:
+def _blob_to_vec(b: bytes | None) -> list[float] | None:
     if b is None:
         return None
     import array
@@ -360,14 +389,14 @@ class Database:
         path: str,
         name: str,
         modality: Modality | str,
-        mime_type: Optional[str] = None,
-        size_bytes: Optional[int] = None,
-        duration_seconds: Optional[float] = None,
-        page_count: Optional[int] = None,
-        metadata: Optional[dict] = None,
-        content_hash: Optional[str] = None,
-        captured_at: Optional[str] = None,
-        file_modified_at: Optional[str] = None,
+        mime_type: str | None = None,
+        size_bytes: int | None = None,
+        duration_seconds: float | None = None,
+        page_count: int | None = None,
+        metadata: dict | None = None,
+        content_hash: str | None = None,
+        captured_at: str | None = None,
+        file_modified_at: str | None = None,
     ) -> str:
         """Insert or update a source.
 
@@ -414,10 +443,22 @@ class Database:
                     last_seen_at=excluded.last_seen_at
                 """,
                 (
-                    source_id, path, name, modality, mime_type, size_bytes,
-                    duration_seconds, page_count, now,
+                    source_id,
+                    path,
+                    name,
+                    modality,
+                    mime_type,
+                    size_bytes,
+                    duration_seconds,
+                    page_count,
+                    now,
                     json.dumps(metadata or {}),
-                    content_hash, path, path, name, file_modified_at, now,
+                    content_hash,
+                    path,
+                    path,
+                    name,
+                    file_modified_at,
+                    now,
                 ),
             )
             if captured_at:
@@ -430,14 +471,14 @@ class Database:
             self._conn.commit()
         return source_id
 
-    def get_source_by_hash(self, content_hash: str) -> Optional[sqlite3.Row]:
+    def get_source_by_hash(self, content_hash: str) -> sqlite3.Row | None:
         """Duplicate detection: find an already-known source by SHA-256."""
         with self._lock:
             return self._conn.execute(
                 "SELECT * FROM sources WHERE content_hash=?", (content_hash,)
             ).fetchone()
 
-    def get_source(self, source_id: str) -> Optional[sqlite3.Row]:
+    def get_source(self, source_id: str) -> sqlite3.Row | None:
         with self._lock:
             return self._conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
 
@@ -448,14 +489,95 @@ class Database:
     def delete_source(self, source_id: str) -> int:
         """Explicit delete control: removes source + its memory events."""
         with self._lock:
-            ids = [r["id"] for r in self._conn.execute(
-                "SELECT id FROM memory_events WHERE source_id=?", (source_id,)
-            )]
+            ids = [
+                r["id"]
+                for r in self._conn.execute(
+                    "SELECT id FROM memory_events WHERE source_id=?", (source_id,)
+                )
+            ]
             for mid in ids:
                 self._conn.execute("DELETE FROM memory_events WHERE id=?", (mid,))
             n = self._conn.execute("DELETE FROM sources WHERE id=?", (source_id,)).rowcount
             self._conn.commit()
         return n
+
+    # -- media assets (Sprint 2 / MediaStore references) ---------------------
+    def add_media_asset(
+        self,
+        asset_id: str,
+        media_key: str,
+        sha256: str,
+        media_type: str,
+        *,
+        source_id: str | None = None,
+        mime_type: str | None = None,
+        size_bytes: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
+        frame_rate: float | None = None,
+        audio_channels: int | None = None,
+        parent_asset_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str:
+        """Persist a reference to one object stored in the MediaStore.
+
+        Bytes live on disk; SQLite only keeps the relative key + metadata.
+        """
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO media_assets(
+                    asset_id, source_id, media_key, sha256, media_type, mime_type,
+                    size_bytes, width, height, duration_seconds, frame_rate,
+                    audio_channels, parent_asset_id, created_at, metadata)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    asset_id,
+                    source_id,
+                    media_key,
+                    sha256,
+                    media_type,
+                    mime_type,
+                    size_bytes,
+                    width,
+                    height,
+                    duration_seconds,
+                    frame_rate,
+                    audio_channels,
+                    parent_asset_id,
+                    _utcnow(),
+                    json.dumps(metadata or {}),
+                ),
+            )
+            if source_id is not None and media_type == "original":
+                self._conn.execute(
+                    "UPDATE sources SET media_key=? WHERE id=?", (media_key, source_id)
+                )
+            self._conn.commit()
+        return asset_id
+
+    def get_media_assets(self, source_id: str) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM media_assets WHERE source_id=? ORDER BY created_at",
+                (source_id,),
+            ).fetchall()
+
+    def list_media_keys(self) -> list[str]:
+        """All referenced media keys (for orphan detection against MediaStore)."""
+        with self._lock:
+            return [r["media_key"] for r in self._conn.execute("SELECT media_key FROM media_assets")]
+
+    def find_source_by_media_key(self, media_key: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT s.* FROM sources s JOIN media_assets m ON m.source_id=s.id "
+                "WHERE m.media_key=? LIMIT 1",
+                (media_key,),
+            ).fetchone()
+
 
     # -- memory events ------------------------------------------------------
     def add_event(self, ev: MemoryEvent) -> str:
@@ -476,14 +598,30 @@ class Database:
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    ev.id, ev.source_id, Modality(ev.modality).value, ev.content,
-                    emb_blob, ev.metadata.get("embedding_model"),
-                    ev.timestamp_start, ev.timestamp_end, ev.page, ev.section, loc,
-                    json.dumps(ev.concepts), json.dumps(ev.metadata),
-                    ev.parent_event, ev.created_at,
-                    ev.event_time_start, ev.event_time_end, ev.captured_at,
-                    ev.modified_at, ev.time_source, ev.time_confidence,
-                    ev.extraction_version, ev.embedding_version, ev.pipeline_version,
+                    ev.id,
+                    ev.source_id,
+                    Modality(ev.modality).value,
+                    ev.content,
+                    emb_blob,
+                    ev.metadata.get("embedding_model"),
+                    ev.timestamp_start,
+                    ev.timestamp_end,
+                    ev.page,
+                    ev.section,
+                    loc,
+                    json.dumps(ev.concepts),
+                    json.dumps(ev.metadata),
+                    ev.parent_event,
+                    ev.created_at,
+                    ev.event_time_start,
+                    ev.event_time_end,
+                    ev.captured_at,
+                    ev.modified_at,
+                    ev.time_source,
+                    ev.time_confidence,
+                    ev.extraction_version,
+                    ev.embedding_version,
+                    ev.pipeline_version,
                 ),
             )
             self._conn.commit()
@@ -496,9 +634,11 @@ class Database:
             n += 1
         return n
 
-    def get_event(self, event_id: str) -> Optional[MemoryEvent]:
+    def get_event(self, event_id: str) -> MemoryEvent | None:
         with self._lock:
-            row = self._conn.execute("SELECT * FROM memory_events WHERE id=?", (event_id,)).fetchone()
+            row = self._conn.execute(
+                "SELECT * FROM memory_events WHERE id=?", (event_id,)
+            ).fetchone()
         return self._row_to_event(row) if row else None
 
     @staticmethod
@@ -524,7 +664,11 @@ class Database:
             captured_at=row["captured_at"] if "captured_at" in keys else None,
             modified_at=row["modified_at"] if "modified_at" in keys else None,
             time_source=row["time_source"] if "time_source" in keys else None,
-            time_confidence=(row["time_confidence"] if "time_confidence" in keys and row["time_confidence"] is not None else 1.0),
+            time_confidence=(
+                row["time_confidence"]
+                if "time_confidence" in keys and row["time_confidence"] is not None
+                else 1.0
+            ),
             extraction_version=row["extraction_version"] if "extraction_version" in keys else None,
             embedding_version=row["embedding_version"] if "embedding_version" in keys else None,
             pipeline_version=row["pipeline_version"] if "pipeline_version" in keys else None,
@@ -571,10 +715,13 @@ class Database:
     def events_by_entity(self, entity_type: str, entity_id: str) -> list[MemoryEvent]:
         """Graph candidate channel: memories linked to an entity."""
         with self._lock:
-            ids = [r["memory_id"] for r in self._conn.execute(
-                "SELECT memory_id FROM entity_links WHERE entity_type=? AND entity_id=?",
-                (entity_type, entity_id),
-            )]
+            ids = [
+                r["memory_id"]
+                for r in self._conn.execute(
+                    "SELECT memory_id FROM entity_links WHERE entity_type=? AND entity_id=?",
+                    (entity_type, entity_id),
+                )
+            ]
             out = []
             for mid in ids:
                 ev = self.get_event(mid)
@@ -583,9 +730,13 @@ class Database:
         return out
 
     # -- graph entities -------------------------------------------------------
-    def upsert_person(self, person_id: str, display_name: str,
-                      aliases: Optional[list[str]] = None,
-                      confidence: float = 1.0) -> str:
+    def upsert_person(
+        self,
+        person_id: str,
+        display_name: str,
+        aliases: list[str] | None = None,
+        confidence: float = 1.0,
+    ) -> str:
         now = _utcnow()
         with self._lock:
             self._conn.execute(
@@ -606,18 +757,35 @@ class Database:
         with self._lock:
             return self._conn.execute("SELECT * FROM persons ORDER BY display_name").fetchall()
 
-    def upsert_place(self, place_id: str, name: Optional[str] = None,
-                     latitude: Optional[float] = None, longitude: Optional[float] = None,
-                     accuracy: Optional[float] = None, city: Optional[str] = None,
-                     region: Optional[str] = None, country: Optional[str] = None,
-                     geocoding_source: Optional[str] = None) -> str:
+    def upsert_place(
+        self,
+        place_id: str,
+        name: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        accuracy: float | None = None,
+        city: str | None = None,
+        region: str | None = None,
+        country: str | None = None,
+        geocoding_source: str | None = None,
+    ) -> str:
         with self._lock:
             self._conn.execute(
                 """INSERT OR REPLACE INTO places(id, name, latitude, longitude, accuracy,
                         city, region, country, geocoding_source, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (place_id, name, latitude, longitude, accuracy, city, region, country,
-                 geocoding_source, _utcnow()),
+                (
+                    place_id,
+                    name,
+                    latitude,
+                    longitude,
+                    accuracy,
+                    city,
+                    region,
+                    country,
+                    geocoding_source,
+                    _utcnow(),
+                ),
             )
             self._conn.commit()
         return place_id
@@ -626,9 +794,16 @@ class Database:
         with self._lock:
             return self._conn.execute("SELECT * FROM places").fetchall()
 
-    def link_entity(self, memory_id: str, entity_type: str, entity_id: str,
-                    relationship_type: str, confidence: float = 1.0,
-                    method: str = "rule", evidence_id: Optional[str] = None) -> None:
+    def link_entity(
+        self,
+        memory_id: str,
+        entity_type: str,
+        entity_id: str,
+        relationship_type: str,
+        confidence: float = 1.0,
+        method: str = "rule",
+        evidence_id: str | None = None,
+    ) -> None:
         """Evidence-backed relationship: every inferred link stores the
         confidence and the method/evidence that justified it."""
         with self._lock:
@@ -636,8 +811,16 @@ class Database:
                 """INSERT OR IGNORE INTO entity_links(memory_id, entity_type, entity_id,
                        relationship_type, confidence, method, evidence_id, created_at)
                    VALUES (?,?,?,?,?,?,?,?)""",
-                (memory_id, entity_type, entity_id, relationship_type,
-                 confidence, method, evidence_id, _utcnow()),
+                (
+                    memory_id,
+                    entity_type,
+                    entity_id,
+                    relationship_type,
+                    confidence,
+                    method,
+                    evidence_id,
+                    _utcnow(),
+                ),
             )
             self._conn.commit()
 
@@ -648,18 +831,37 @@ class Database:
             ).fetchall()
 
     # -- inference telemetry ----------------------------------------------------
-    def record_inference(self, model_id: str, task: str, runtime: Optional[str],
-                         provider: Optional[str], backend: Optional[str],
-                         duration_ms: Optional[float], input_size: Optional[str] = None,
-                         memory_mb: Optional[float] = None, success: bool = True,
-                         fallback_reason: Optional[str] = None) -> int:
+    def record_inference(
+        self,
+        model_id: str,
+        task: str,
+        runtime: str | None,
+        provider: str | None,
+        backend: str | None,
+        duration_ms: float | None,
+        input_size: str | None = None,
+        memory_mb: float | None = None,
+        success: bool = True,
+        fallback_reason: str | None = None,
+    ) -> int:
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO inference_records(model_id, task, runtime, provider, backend,
                        started_at, duration_ms, input_size, memory_mb, success, fallback_reason)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (model_id, task, runtime, provider, backend, _utcnow(), duration_ms,
-                 input_size, memory_mb, 1 if success else 0, fallback_reason),
+                (
+                    model_id,
+                    task,
+                    runtime,
+                    provider,
+                    backend,
+                    _utcnow(),
+                    duration_ms,
+                    input_size,
+                    memory_mb,
+                    1 if success else 0,
+                    fallback_reason,
+                ),
             )
             self._conn.commit()
         return int(cur.lastrowid or -1)
@@ -684,22 +886,15 @@ class Database:
         prefix ("a b c"*), which made multi-word queries miss documents where
         the terms were present but not adjacent in exactly that order.
         """
-        import re
-
         tokens = re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?", query)
         if not tokens:
             return ""
         return " ".join('"' + t.replace('"', '""') + '"*' for t in tokens)
 
-    def fts_search(self, query: str, limit: int = 50) -> list[tuple[MemoryEvent, float]]:
-        """Returns (event, bm25_score) — lower bm25 == better match."""
-        if not query.strip():
-            return []
-        safe = self._fts_match_query(query)
-        if not safe:
-            return []
+    def _fts_rows(self, match_expr: str, limit: int) -> list[sqlite3.Row]:
+        """Execute one FTS5 MATCH query with bm25 ranking."""
         with self._lock:
-            rows = self._conn.execute(
+            return self._conn.execute(
                 """
                 SELECT me.*, bm25(memory_events_fts, 1.0, 0.5, 0.3) AS rank
                 FROM memory_events_fts
@@ -708,8 +903,29 @@ class Database:
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (safe, limit),
+                (match_expr, limit),
             ).fetchall()
+
+    def fts_search(self, query: str, limit: int = 50) -> list[tuple[MemoryEvent, float]]:
+        """Returns (event, bm25_score) — lower bm25 == better match.
+
+        Robustness: strict AND over all terms is the first attempt; if it
+        yields nothing we retry with OR so a single unmatched term (e.g. an
+        interrogative like "take", or a year token that lives only in event
+        time rather than content) cannot zero out an otherwise strong hit.
+        bm25 still ranks documents containing more/rarer terms first.
+        """
+        if not query.strip():
+            return []
+        tokens = re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?", query)
+        if not tokens:
+            return []
+        quoted = [t.replace('"', '""') for t in tokens]
+        and_expr = " ".join(f'"{t}"*' for t in quoted)
+        rows = self._fts_rows(and_expr, limit)
+        if not rows and len(tokens) > 1:
+            or_expr = " OR ".join(f'"{t}"*' for t in quoted[:8])
+            rows = self._fts_rows(or_expr, limit)
         return [(self._row_to_event(r), r["rank"]) for r in rows]
 
     # -- relationships ---------------------------------------------------------
@@ -741,31 +957,43 @@ class Database:
                    (id, kind, status, progress, current_stage, stages, completed_stages,
                     source_path, created_at, updated_at)
                    VALUES (?,?,'queued',0,?,?, '[]',?,?,?)""",
-                (job_id, kind, stages[0] if stages else None, json.dumps(stages),
-                 source_path, _utcnow(), _utcnow()),
+                (
+                    job_id,
+                    kind,
+                    stages[0] if stages else None,
+                    json.dumps(stages),
+                    source_path,
+                    _utcnow(),
+                    _utcnow(),
+                ),
             )
             self._conn.commit()
 
     def update_job(
         self,
         job_id: str,
-        status: Optional[str] = None,
-        progress: Optional[float] = None,
-        current_stage: Optional[str] = None,
-        completed_stages: Optional[list[str]] = None,
-        error: Optional[str] = None,
+        status: str | None = None,
+        progress: float | None = None,
+        current_stage: str | None = None,
+        completed_stages: list[str] | None = None,
+        error: str | None = None,
     ) -> None:
         sets, vals = ["updated_at=?"], [_utcnow()]
         if status is not None:
-            sets.append("status=?"); vals.append(status)
+            sets.append("status=?")
+            vals.append(status)
         if progress is not None:
-            sets.append("progress=?"); vals.append(progress)
+            sets.append("progress=?")
+            vals.append(progress)
         if current_stage is not None:
-            sets.append("current_stage=?"); vals.append(current_stage)
+            sets.append("current_stage=?")
+            vals.append(current_stage)
         if completed_stages is not None:
-            sets.append("completed_stages=?"); vals.append(json.dumps(completed_stages))
+            sets.append("completed_stages=?")
+            vals.append(json.dumps(completed_stages))
         if error is not None:
-            sets.append("error=?"); vals.append(error)
+            sets.append("error=?")
+            vals.append(error)
         with self._lock:
             self._conn.execute(f"UPDATE jobs SET {','.join(sets)} WHERE id=?", (*vals, job_id))
             self._conn.commit()
@@ -775,7 +1003,7 @@ class Database:
             self._conn.execute("UPDATE jobs SET cancelled=1 WHERE id=?", (job_id,))
             self._conn.commit()
 
-    def get_job(self, job_id: str) -> Optional[sqlite3.Row]:
+    def get_job(self, job_id: str) -> sqlite3.Row | None:
         with self._lock:
             return self._conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
 
@@ -803,15 +1031,44 @@ class Database:
 
     # -- benchmark runs -------------------------------------------------------
     def record_benchmark(self, data: dict[str, Any]) -> int:
-        cols = ["run_ts", "machine", "model_id", "task", "runtime", "execution_provider",
-                "backend", "input_desc", "latency_ms", "throughput", "peak_memory_mb",
-                "cpu_pct", "gpu_pct", "npu_pct", "fallback", "notes",
-                # Phase 12/13 traceability fields (migration v2)
-                "model_version", "quantization", "input_size", "p50_ms", "p95_ms",
-                "iterations", "os_name", "arch", "cpu_model", "ram_gb",
-                "runtime_version", "available_providers", "provider_used",
-                "accelerated", "fallback_reason", "power_mw", "thermal_celsius",
-                "battery_pct", "pipeline_version"]
+        cols = [
+            "run_ts",
+            "machine",
+            "model_id",
+            "task",
+            "runtime",
+            "execution_provider",
+            "backend",
+            "input_desc",
+            "latency_ms",
+            "throughput",
+            "peak_memory_mb",
+            "cpu_pct",
+            "gpu_pct",
+            "npu_pct",
+            "fallback",
+            "notes",
+            # Phase 12/13 traceability fields (migration v2)
+            "model_version",
+            "quantization",
+            "input_size",
+            "p50_ms",
+            "p95_ms",
+            "iterations",
+            "os_name",
+            "arch",
+            "cpu_model",
+            "ram_gb",
+            "runtime_version",
+            "available_providers",
+            "provider_used",
+            "accelerated",
+            "fallback_reason",
+            "power_mw",
+            "thermal_celsius",
+            "battery_pct",
+            "pipeline_version",
+        ]
         vals = [data.get(c) for c in cols]
         placeholders = ",".join("?" * len(cols))
         with self._lock:

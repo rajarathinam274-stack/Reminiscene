@@ -17,6 +17,7 @@ Defense layers:
 4. The answer pipeline itself enforces grounding server-side: answers are
    built ONLY from retrieved evidence ids; insufficient evidence => refusal.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,15 +25,24 @@ from dataclasses import dataclass
 
 # Instruction-override patterns that malicious documents commonly use.
 _INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\bignore\s+(all\s+|any\s+)?(previous|prior|above|earlier)\s+"
-               r"(instructions?|prompts?|rules?|directives?)", re.I),
-    re.compile(r"\bdisregard\s+(all\s+|the\s+)?(previous|prior|your)\s+"
-               r"(instructions?|rules?|guidelines?)", re.I),
+    re.compile(
+        r"\bignore\s+(all\s+|any\s+)?(previous|prior|above|earlier)\s+"
+        r"(instructions?|prompts?|rules?|directives?)",
+        re.I,
+    ),
+    re.compile(
+        r"\bdisregard\s+(all\s+|the\s+)?(previous|prior|your)\s+"
+        r"(instructions?|rules?|guidelines?)",
+        re.I,
+    ),
     re.compile(r"\bforget\s+(everything|all)\s+(you|above|previously)", re.I),
     re.compile(r"\byou\s+are\s+now\b", re.I),
     re.compile(r"\bnew\s+system\s+prompt\b", re.I),
-    re.compile(r"\b(reveal|expose|dump|print)\b.{0,40}\b(private|secret|other user|"
-               r"password|credential|api key)s?\b", re.I),
+    re.compile(
+        r"\b(reveal|expose|dump|print)\b.{0,40}\b(private|secret|other user|"
+        r"password|credential|api key)s?\b",
+        re.I,
+    ),
     re.compile(r"\bexecute\s+(this|the following)?\s*(code|command|shell)\b", re.I),
     re.compile(r"^\s*(system|assistant)\s*:", re.I | re.M),
     re.compile(r"<\s*/?\s*(system|instruction|prompt)\s*>", re.I),
@@ -98,5 +108,6 @@ def build_evidence_pack(evidences) -> EvidencePack:
         )
         ids.append(ev.memory_id)
     body = "\n".join(parts) if parts else "(no memories retrieved)"
-    return EvidencePack(block=f"{_UNTRUSTED_HEADER}\n\n{body}",
-                        memory_ids=tuple(ids), injection_count=injections)
+    return EvidencePack(
+        block=f"{_UNTRUSTED_HEADER}\n\n{body}", memory_ids=tuple(ids), injection_count=injections
+    )

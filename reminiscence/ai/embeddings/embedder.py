@@ -16,7 +16,6 @@ import math
 import re
 from abc import ABC, abstractmethod
 from collections import Counter
-from typing import Optional
 
 import numpy as np
 
@@ -62,7 +61,7 @@ class HashingTFIDFEmbedder(Embedder):
     def _tokens(self, text: str) -> list[str]:
         return _WORD_RE.findall(text.lower())
 
-    def fit(self, corpus: list[str]) -> "HashingTFIDFEmbedder":
+    def fit(self, corpus: list[str]) -> HashingTFIDFEmbedder:
         for t in corpus:
             seen = set(self._tokens(t))
             self._doc_freq.update(seen)
@@ -128,12 +127,12 @@ class OnnxMiniLMEmbedder(Embedder):
         outs: list[np.ndarray] = []
         batch = 32
         for start in range(0, len(texts), batch):
-            enc = self._tokenizer(texts[start:start + batch])
+            enc = self._tokenizer(texts[start : start + batch])
             feed = {k: np.asarray(v, dtype=np.float32) for k, v in enc.items()}
-            result = self._adapter.run(feed)[0]      # (B, T, 384) last_hidden_state
+            result = self._adapter.run(feed)[0]  # (B, T, 384) last_hidden_state
             mask = enc["attention_mask"]
             lens = np.asarray(mask).sum(axis=1)
-            pooled = np.stack([result[b, : int(l)] .mean(axis=0) for b, l in enumerate(lens)])
+            pooled = np.stack([result[b, : int(l)].mean(axis=0) for b, l in enumerate(lens)])
             outs.append(pooled)
         v = np.concatenate(outs, axis=0).astype(np.float32)
         norms = np.linalg.norm(v, axis=1, keepdims=True)
@@ -141,11 +140,12 @@ class OnnxMiniLMEmbedder(Embedder):
         return v / norms
 
 
-def get_embedder(prefer_model_path: Optional[str] = None, dim: int = 512) -> Embedder:
+def get_embedder(prefer_model_path: str | None = None, dim: int = 512) -> Embedder:
     """Factory honoring registry/availability; never fakes a model."""
     if prefer_model_path:
         try:
             from ..runtime import OnnxRuntimeAdapter
+
             if OnnxRuntimeAdapter.available():
                 emb = OnnxMiniLMEmbedder(prefer_model_path)
                 emb._adapter.load()

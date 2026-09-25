@@ -15,10 +15,11 @@ import os
 import platform
 import time
 import tracemalloc
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..ai.runtime import OnnxRuntimeAdapter, RuntimeInfo
 from ..storage.database import Database
@@ -34,34 +35,34 @@ class BenchmarkResult:
     execution_provider: str
     backend: str
     input_desc: str
-    latency_ms: Optional[float] = None
-    p50_ms: Optional[float] = None
-    p95_ms: Optional[float] = None
-    throughput: Optional[float] = None      # items/sec
-    peak_memory_mb: Optional[float] = None
-    cpu_pct: Optional[float] = None
-    gpu_pct: Optional[float] = None
-    npu_pct: Optional[float] = None         # None == not observable here
+    latency_ms: float | None = None
+    p50_ms: float | None = None
+    p95_ms: float | None = None
+    throughput: float | None = None  # items/sec
+    peak_memory_mb: float | None = None
+    cpu_pct: float | None = None
+    gpu_pct: float | None = None
+    npu_pct: float | None = None  # None == not observable here
     fallback: bool = False
     notes: str = ""
     # Phase 12/13 traceability (every number tied to its exact environment)
-    model_version: Optional[str] = None
-    quantization: Optional[str] = None
-    input_size: Optional[str] = None
-    iterations: Optional[int] = None
-    os_name: Optional[str] = None
-    arch: Optional[str] = None
-    cpu_model: Optional[str] = None
-    ram_gb: Optional[float] = None
-    runtime_version: Optional[str] = None
-    available_providers: Optional[str] = None
-    provider_used: Optional[str] = None
-    accelerated: Optional[bool] = None
-    fallback_reason: Optional[str] = None
-    power_mw: Optional[float] = None
-    thermal_celsius: Optional[float] = None
-    battery_pct: Optional[float] = None
-    pipeline_version: Optional[str] = None
+    model_version: str | None = None
+    quantization: str | None = None
+    input_size: str | None = None
+    iterations: int | None = None
+    os_name: str | None = None
+    arch: str | None = None
+    cpu_model: str | None = None
+    ram_gb: float | None = None
+    runtime_version: str | None = None
+    available_providers: str | None = None
+    provider_used: str | None = None
+    accelerated: bool | None = None
+    fallback_reason: str | None = None
+    power_mw: float | None = None
+    thermal_celsius: float | None = None
+    battery_pct: float | None = None
+    pipeline_version: str | None = None
 
     def to_row(self) -> dict:
         d = asdict(self)
@@ -72,16 +73,17 @@ class BenchmarkResult:
 
 
 def current_machine() -> str:
-    return f"{platform.system()} {platform.release()} {platform.machine()} " \
-           f"({os.cpu_count()} CPUs)"
+    return f"{platform.system()} {platform.release()} {platform.machine()} ({os.cpu_count()} CPUs)"
 
 
-def _cpu_model() -> Optional[str]:
+def _cpu_model() -> str | None:
     try:
         if platform.system() == "Windows":
             import subprocess
+
             out = subprocess.run(
-                ["wmic", "cpu", "get", "name"], capture_output=True, text=True, timeout=5)
+                ["wmic", "cpu", "get", "name"], capture_output=True, text=True, timeout=5
+            )
             lines = [l.strip() for l in out.stdout.splitlines() if l.strip()][1:]
             return lines[0] if lines else None
         with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as f:
@@ -94,9 +96,10 @@ def _cpu_model() -> Optional[str]:
     return None
 
 
-def _ram_gb() -> Optional[float]:
+def _ram_gb() -> float | None:
     try:
         import psutil
+
         return round(psutil.virtual_memory().total / 1e9, 1)
     except Exception:
         try:
@@ -127,6 +130,7 @@ def power_thermal_snapshot() -> dict:
     # Battery (psutil exposes it everywhere it can be read locally)
     try:
         import psutil
+
         b = psutil.sensors_battery()
         if b is not None:
             snap["battery_pct"] = float(b.percent)
@@ -147,6 +151,7 @@ def power_thermal_snapshot() -> dict:
     # Power (Intel RAPL via psutil where present; HTP power only on-target)
     try:
         import psutil
+
         for k, v in (getattr(psutil, "sensors_power", lambda: {})() or {}).items():
             if isinstance(v, (int, float)) and v > 0:
                 snap["power_mw"] = float(v)
@@ -182,7 +187,7 @@ class _CpuSampler:
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
 
-    def stop(self) -> Optional[float]:
+    def stop(self) -> float | None:
         if self._stop is None:
             return None
         self._stop.set()
@@ -192,7 +197,7 @@ class _CpuSampler:
         return round(sum(vals) / len(vals), 1) if vals else None
 
 
-def _percentile(vals: list[float], p: float) -> Optional[float]:
+def _percentile(vals: list[float], p: float) -> float | None:
     if not vals:
         return None
     s = sorted(vals)
@@ -203,26 +208,34 @@ def _percentile(vals: list[float], p: float) -> Optional[float]:
 class BenchmarkRunner:
     """Runs cold/warm/batch/memory benchmarks against pluggable callables."""
 
-    def __init__(self, db: Optional[Database] = None):
+    def __init__(self, db: Database | None = None):
         self.db = db
         self.results: list[BenchmarkResult] = []
 
     # ------------------------------------------------------------------
-    def _base(self, model_id: str, task: str, input_desc: str,
-              rt: Optional[RuntimeInfo] = None) -> BenchmarkResult:
+    def _base(
+        self, model_id: str, task: str, input_desc: str, rt: RuntimeInfo | None = None
+    ) -> BenchmarkResult:
         res = BenchmarkResult(
-            run_ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            run_ts=datetime.now(UTC).isoformat(timespec="seconds"),
             machine=current_machine(),
-            model_id=model_id, task=task, input_desc=input_desc,
+            model_id=model_id,
+            task=task,
+            input_desc=input_desc,
             runtime=rt.runtime if rt else "builtin",
             execution_provider=rt.selected_provider if rt else "CPUExecutionProvider",
             backend=rt.backend if rt else "cpu",
         )
         if rt is not None:
             # Honest fallback labeling: intended accel path vs actual EP.
-            res.fallback = ("npu" in getattr(rt, "preferred_devices", ["npu"])) and not rt.accelerated \
-                if hasattr(rt, "preferred_devices") else (rt.selected_provider == "CPUExecutionProvider"
-                                                          and "QNNExecutionProvider" in rt.available_providers)
+            res.fallback = (
+                ("npu" in getattr(rt, "preferred_devices", ["npu"])) and not rt.accelerated
+                if hasattr(rt, "preferred_devices")
+                else (
+                    rt.selected_provider == "CPUExecutionProvider"
+                    and "QNNExecutionProvider" in rt.available_providers
+                )
+            )
         return res
 
     # ------------------------------------------------------------------
@@ -235,13 +248,13 @@ class BenchmarkRunner:
         iterations: int = 5,
         warmup: int = 1,
         measure_memory: bool = True,
-        rt_info: Optional[RuntimeInfo] = None,
+        rt_info: RuntimeInfo | None = None,
         require_acceleration: bool = False,
-        model_version: Optional[str] = None,
-        quantization: Optional[str] = None,
-        input_size: Optional[str] = None,
-        fallback_reason: Optional[str] = None,
-        pipeline_version: Optional[str] = None,
+        model_version: str | None = None,
+        quantization: str | None = None,
+        input_size: str | None = None,
+        fallback_reason: str | None = None,
+        pipeline_version: str | None = None,
     ) -> BenchmarkResult:
         """Cold start + warm latency + throughput + peak memory for one callable."""
         res = self._base(model_id, task, input_desc, rt_info)
@@ -252,6 +265,7 @@ class BenchmarkRunner:
         if pipeline_version is None:
             # stamp automatically so every measured result is reproducible
             from ..ingestion.pipeline import PIPELINE_VERSION
+
             pipeline_version = PIPELINE_VERSION
         res.pipeline_version = pipeline_version
         ctx = hardware_context()
@@ -294,6 +308,7 @@ class BenchmarkRunner:
         if res.cpu_pct is None:
             try:
                 import psutil
+
                 res.cpu_pct = psutil.cpu_percent(interval=None)
             except ImportError:
                 res.cpu_pct = None
@@ -305,8 +320,10 @@ class BenchmarkRunner:
         res.npu_pct = None  # populated on-target where QNN profiling exists
 
         if require_acceleration and rt_info is not None and not rt_info.accelerated:
-            res.notes = ("FLAG: intended accelerator path NOT used — measured on CPU. "
-                         "Benchmark result is a CPU baseline, not an NPU result.")
+            res.notes = (
+                "FLAG: intended accelerator path NOT used — measured on CPU. "
+                "Benchmark result is a CPU baseline, not an NPU result."
+            )
             if res.execution_provider == "CPUExecutionProvider":
                 res.fallback = True
                 res.fallback_reason = fallback_reason or "QNN EP not verified on this machine"
@@ -318,21 +335,30 @@ class BenchmarkRunner:
         return res
 
     # ------------------------------------------------------------------
-    def bench_onnx_model(self, adapter: OnnxRuntimeAdapter, inputs: dict,
-                         model_id: str, task: str, input_desc: str,
-                         iterations: int = 5, require_acceleration: bool = False) -> BenchmarkResult:
+    def bench_onnx_model(
+        self,
+        adapter: OnnxRuntimeAdapter,
+        inputs: dict,
+        model_id: str,
+        task: str,
+        input_desc: str,
+        iterations: int = 5,
+        require_acceleration: bool = False,
+    ) -> BenchmarkResult:
         rt = adapter.load()
         return self.bench_fn(
             lambda: adapter.run(inputs),
-            model_id=model_id, task=task, input_desc=input_desc,
-            iterations=iterations, rt_info=rt,
+            model_id=model_id,
+            task=task,
+            input_desc=input_desc,
+            iterations=iterations,
+            rt_info=rt,
             require_acceleration=require_acceleration,
         )
 
     # ------------------------------------------------------------------
     def report(self) -> str:
-        lines = ["REMINISCENCE BENCHMARK REPORT", "=" * 40,
-                 f"Machine: {current_machine()}"]
+        lines = ["REMINISCENCE BENCHMARK REPORT", "=" * 40, f"Machine: {current_machine()}"]
         for r in self.results:
             lines += [
                 "",

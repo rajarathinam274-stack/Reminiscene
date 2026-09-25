@@ -17,9 +17,8 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
-from .resolver import Evidence, EvidenceResolver
+from .resolver import Evidence
 
 
 @dataclass
@@ -27,21 +26,28 @@ class Answer:
     answer: str
     grounded: bool
     evidence: list[dict] = field(default_factory=list)
-    backend: str = ""            # which generator actually ran
+    backend: str = ""  # which generator actually ran
     notes: str = ""
-    confidence: float = 0.0      # 0..1 — how well the answer is supported
+    confidence: float = 0.0  # 0..1 — how well the answer is supported
     support: str = "unavailable"  # directly_supported | inferred | uncertain | unavailable
     model_id: str = ""
     execution_provider: str = ""
 
     def to_json(self) -> str:
         return json.dumps(
-            {"answer": self.answer, "grounded": self.grounded,
-             "evidence": self.evidence, "backend": self.backend, "notes": self.notes,
-             "confidence": round(self.confidence, 3), "support": self.support,
-             "model_id": self.model_id,
-             "execution_provider": self.execution_provider},
-            ensure_ascii=False, indent=2,
+            {
+                "answer": self.answer,
+                "grounded": self.grounded,
+                "evidence": self.evidence,
+                "backend": self.backend,
+                "notes": self.notes,
+                "confidence": round(self.confidence, 3),
+                "support": self.support,
+                "model_id": self.model_id,
+                "execution_provider": self.execution_provider,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
 
 
@@ -65,8 +71,11 @@ class ExtractiveGroundedAnswerer(AnswerGenerator):
         self.snippet_chars = snippet_chars
 
     def generate(self, question: str, evidences: list[Evidence]) -> Answer:
-        usable = [e for e in evidences if e.page is not None or e.timestamp is not None
-                  or e.section or e.bbox or e.source]
+        usable = [
+            e
+            for e in evidences
+            if e.page is not None or e.timestamp is not None or e.section or e.bbox or e.source
+        ]
         if not usable:
             return Answer(
                 answer="I could not find sufficiently grounded memories for that.",
@@ -75,8 +84,10 @@ class ExtractiveGroundedAnswerer(AnswerGenerator):
                 backend=self.backend_name,
                 notes="No anchored evidence retrieved; refusing to fabricate citations.",
             )
-        lines = [f"Based on {len(usable[:self.max_items])} local memor"
-                 f"{'y' if len(usable[:self.max_items]) == 1 else 'ies'}:"]
+        lines = [
+            f"Based on {len(usable[: self.max_items])} local memor"
+            f"{'y' if len(usable[: self.max_items]) == 1 else 'ies'}:"
+        ]
         payload: list[dict] = []
         for i, e in enumerate(usable[: self.max_items], start=1):
             snip = e.snippet[: self.snippet_chars]
@@ -105,11 +116,11 @@ class OnnxLocalLLM(AnswerGenerator):
         "You are REMINISCENCE, a private local memory assistant. Answer ONLY "
         "from the provided evidence. Cite evidence by its index like [E1]. "
         "If the evidence is insufficient, say so; never invent sources. "
-        "Respond in JSON: {\"answer\": str, \"grounded\": bool}."
+        'Respond in JSON: {"answer": str, "grounded": bool}.'
     )
 
     def __init__(self, adapter, tokenizer, max_new_tokens: int = 256):
-        self._adapter = adapter      # OnnxRuntimeAdapter (already resolvable)
+        self._adapter = adapter  # OnnxRuntimeAdapter (already resolvable)
         self._tokenizer = tokenizer
         self.max_new_tokens = max_new_tokens
 
@@ -130,7 +141,7 @@ class OnnxLocalLLM(AnswerGenerator):
         try:
             raw = self._adapter.run(self._tokenizer(prompt))
             text = self._tokenizer.decode(raw[0]).strip()
-            parsed = json.loads(text[text.find("{"): text.rfind("}") + 1])
+            parsed = json.loads(text[text.find("{") : text.rfind("}") + 1])
             answer = parsed.get("answer", text)
             grounded = bool(parsed.get("grounded", True))
         except Exception as e:
@@ -140,8 +151,12 @@ class OnnxLocalLLM(AnswerGenerator):
             fb.backend = f"{self.backend_name}->fallback"
             return fb
         if not grounded:
-            return Answer(answer="The retrieved evidence was not sufficient for a confident answer.",
-                          grounded=False, evidence=[], backend=self.backend_name)
+            return Answer(
+                answer="The retrieved evidence was not sufficient for a confident answer.",
+                grounded=False,
+                evidence=[],
+                backend=self.backend_name,
+            )
         return Answer(
             answer=answer,
             grounded=True,

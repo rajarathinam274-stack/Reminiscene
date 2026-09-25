@@ -14,16 +14,16 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
 class RuntimeInfo:
-    runtime: str                    # "onnxruntime" | "stub"
-    version: Optional[str]
+    runtime: str  # "onnxruntime" | "stub"
+    version: str | None
     available_providers: list[str] = field(default_factory=list)
     selected_provider: str = "CPUExecutionProvider"
-    backend: str = "cpu"            # cpu | gpu | htp/npu
+    backend: str = "cpu"  # cpu | gpu | htp/npu
     arch: str = field(default_factory=lambda: platform.machine())
     os_name: str = field(default_factory=lambda: f"{platform.system()} {platform.release()}")
 
@@ -33,7 +33,7 @@ class RuntimeInfo:
 
 
 _PREFERRED_ORDER = [
-    "QNNExecutionProvider",   # Qualcomm NPU (Hexagon HTP)
+    "QNNExecutionProvider",  # Qualcomm NPU (Hexagon HTP)
     "NnapiExecutionProvider",
     "CUDAExecutionProvider",
     "CPUExecutionProvider",
@@ -50,17 +50,18 @@ _BACKEND_BY_PROVIDER = {
 class OnnxRuntimeAdapter:
     """Lazy wrapper around an onnxruntime InferenceSession."""
 
-    def __init__(self, model_path: str, preferred_providers: Optional[list[str]] = None):
+    def __init__(self, model_path: str, preferred_providers: list[str] | None = None):
         self.model_path = model_path
         self.preferred = preferred_providers or _PREFERRED_ORDER
         self._session = None
-        self._info: Optional[RuntimeInfo] = None
+        self._info: RuntimeInfo | None = None
 
     # ------------------------------------------------------------------
     @staticmethod
     def available() -> bool:
         try:
             import onnxruntime  # noqa: F401
+
             return True
         except Exception:
             return False
@@ -70,6 +71,7 @@ class OnnxRuntimeAdapter:
         """True only if the QNN EP is genuinely registered in this ORT build."""
         try:
             import onnxruntime as ort
+
             return "QNNExecutionProvider" in ort.get_available_providers()
         except Exception:
             return False
@@ -78,10 +80,12 @@ class OnnxRuntimeAdapter:
     def load(self) -> RuntimeInfo:
         if self._info is not None:
             return self._info
-        info = RuntimeInfo(runtime="stub", version=None, backend="cpu",
-                           selected_provider="CPUExecutionProvider")
+        info = RuntimeInfo(
+            runtime="stub", version=None, backend="cpu", selected_provider="CPUExecutionProvider"
+        )
         try:
             import onnxruntime as ort
+
             info.runtime = "onnxruntime"
             info.version = ort.__version__
             avail = list(ort.get_available_providers())
@@ -89,8 +93,9 @@ class OnnxRuntimeAdapter:
             providers = [p for p in self.preferred if p in avail] or ["CPUExecutionProvider"]
             sess_opts = ort.SessionOptions()
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            self._session = ort.InferenceSession(self.model_path, sess_options=sess_opts,
-                                                 providers=providers)
+            self._session = ort.InferenceSession(
+                self.model_path, sess_options=sess_opts, providers=providers
+            )
             # The session reports which providers were actually attached.
             active = list(self._session.get_providers())
             info.selected_provider = active[0] if active else "CPUExecutionProvider"
