@@ -12,19 +12,18 @@ from __future__ import annotations
 import hashlib
 import logging
 import mimetypes
-import os
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable, Optional
 
 from ..ai.embeddings.embedder import Embedder
 from ..ai.scheduler import AIWorkloadScheduler
-from ..memory.chunking import Chunk, chunk_document_text, chunk_pdf_pages, chunk_transcript, Segment
+from ..memory.chunking import Chunk, Segment, chunk_document_text, chunk_pdf_pages, chunk_transcript
 from ..memory.events import MemoryEvent, Modality, Region
 from ..storage.database import Database
+from ..storage.media_store import MediaObject, MediaStore
 from ..storage.vector_index import VectorIndex
 from ..workers.queue import Job, JobContext
 
@@ -35,10 +34,29 @@ EXTRACTION_VERSION = "1.0"
 
 log = logging.getLogger("reminiscence.ingestion")
 
-SUPPORTED_EXTS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".markdown",
-                  ".mp3", ".wav", ".m4a", ".flac", ".ogg",
-                  ".mp4", ".mov", ".mkv", ".avi",
-                  ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
+SUPPORTED_EXTS = {
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".flac",
+    ".ogg",
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".avi",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".tiff",
+}
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi"}
@@ -86,7 +104,7 @@ def source_id_for(path: str | Path) -> str:
     return hashlib.sha1(str(p).encode()).hexdigest()[:16]
 
 
-def capture_time_for(path: str | Path) -> tuple[Optional[str], str]:
+def capture_time_for(path: str | Path) -> tuple[str | None, str]:
     """Best-effort *capture* time of a file (never import time).
 
     Priority: EXIF DateTimeOriginal (images) > filesystem mtime.
@@ -109,9 +127,9 @@ def capture_time_for(path: str | Path) -> tuple[Optional[str], str]:
     return _mtime_iso(p), "filesystem_mtime"
 
 
-def _mtime_iso(path: str | Path) -> Optional[str]:
+def _mtime_iso(path: str | Path) -> str | None:
     try:
-        m = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
+        m = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=UTC)
         return m.isoformat()
     except OSError:
         return None
@@ -121,12 +139,15 @@ def _mtime_iso(path: str | Path) -> Optional[str]:
 # Extractors (per modality)
 # ---------------------------------------------------------------------------
 
+
 def extract_pdf_pages(path: str | Path) -> list[str]:
     """PyMuPDF page texts; falls back to a clear error when unavailable."""
     try:
         import fitz  # PyMuPDF
     except ImportError as e:
-        raise MissingDependency("PyMuPDF is required for PDF ingestion (pip install pymupdf)") from e
+        raise MissingDependency(
+            "PyMuPDF is required for PDF ingestion (pip install pymupdf)"
+        ) from e
     pages: list[str] = []
     with fitz.open(str(path)) as doc:
         for page in doc:
@@ -175,14 +196,24 @@ def extract_plain_text(path: str | Path) -> str:
     return Path(path).read_text(encoding="utf-8", errors="replace")
 
 
-def ffprobe_duration(path: str | Path) -> Optional[float]:
+def ffprobe_duration(path: str | Path) -> float | None:
     if shutil.which("ffmpeg") is None and shutil.which("ffprobe") is None:
         return None
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-            capture_output=True, text=True, timeout=20,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
         )
         return float(out.stdout.strip())
     except Exception:
@@ -195,9 +226,21 @@ def extract_audio_to_wav(path: str | Path, dest_dir: Path) -> Path:
         raise MissingDependency("FFmpeg is required for audio/video ingestion")
     dest = dest_dir / (Path(path).stem + "_audio.wav")
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(path),
-         "-ac", "1", "-ar", "16000", str(dest)],
-        check=True, timeout=1800,
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(path),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            str(dest),
+        ],
+        check=True,
+        timeout=1800,
     )
     return dest
 
@@ -205,6 +248,7 @@ def extract_audio_to_wav(path: str | Path, dest_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 # ASR/OCR interfaces (pluggable; honest stubs when models missing)
 # ---------------------------------------------------------------------------
+
 
 class Transcriber:
     """Timestamped local transcription interface (Whisper-Base candidate)."""
@@ -222,8 +266,51 @@ class OCRBackend:
 
 
 # ---------------------------------------------------------------------------
+# Adapters bridging ai.asr / ai.vision.ocr backends into the pipeline
+# interfaces above (Sprint 4 wiring — keeps ingestion decoupled from engines)
+# ---------------------------------------------------------------------------
+
+
+class AsrAdapter(Transcriber):
+    """Adapts a ``reminiscence.ai.asr`` transcriber to the pipeline interface.
+
+    The rich backend returns a TranscriptResult carrying language and the
+    *actual* execution provider; we surface plain Segments here and stash the
+    metadata on ``last_result`` so callers (jobs, benchmarks) can record it.
+    """
+
+    def __init__(self, backend):
+        if not hasattr(backend, "transcribe_segments"):
+            raise TypeError(
+                "AsrAdapter expects an ai.asr backend exposing transcribe_segments(); "
+                "pass the pipeline-native Transcriber implementation directly instead."
+            )
+        self.backend = backend
+        self.last_result = None
+
+    def transcribe(self, wav_path: str | Path) -> list[Segment]:
+        result = self.backend.transcribe_segments(wav_path)
+        self.last_result = result
+        return list(result.segments)
+
+
+class OcrAdapter(OCRBackend):
+    """Adapts a ``reminiscence.ai.vision.ocr`` backend to the pipeline dict shape."""
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def recognize(self, image_path: str | Path) -> list[dict]:
+        result = self.backend.recognize(image_path)
+        return [r.to_dict() for r in result.regions] or [
+            {"text": result.text, "page": result.page, "bbox": None, "confidence": None}
+        ]
+
+
+# ---------------------------------------------------------------------------
 # Pipeline orchestrator
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class IngestionResult:
@@ -241,8 +328,9 @@ class IngestionPipeline:
         embedder: Embedder,
         scheduler: AIWorkloadScheduler,
         data_dir: str | Path,
-        transcriber: Optional[Transcriber] = None,
-        ocr: Optional[OCRBackend] = None,
+        transcriber: Transcriber | None = None,
+        ocr: OCRBackend | None = None,
+        media_store: MediaStore | None = None,
     ):
         self.db = db
         self.index = index
@@ -252,10 +340,18 @@ class IngestionPipeline:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.transcriber = transcriber
         self.ocr = ocr
+        # Sprint 2: authoritative content-addressed media storage. When a
+        # MediaStore is provided, every imported file becomes a canonical
+        # object (objects/<hash-prefix>/<sha256>) and SQLite keeps only the
+        # reference key. Without one, ingestion still works (dev/tests).
+        if media_store is None:
+            media_store = MediaStore(self.data_dir / "media")
+        self.media_store = media_store
 
     # ------------------------------------------------------------------
-    def ingest(self, path: str | Path, job: Optional[Job] = None,
-               ctx: Optional[JobContext] = None) -> IngestionResult:
+    def ingest(
+        self, path: str | Path, job: Job | None = None, ctx: JobContext | None = None
+    ) -> IngestionResult:
         path = Path(path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
@@ -263,15 +359,12 @@ class IngestionPipeline:
 
         def stage(name: str):
             if ctx:
-                ctx.stage(name); ctx.check_cancelled()
+                ctx.stage(name)
+                ctx.check_cancelled()
 
         def done(name: str):
             if ctx:
                 ctx.complete_stage(name)
-
-        stages = ["identify", "metadata", "process", "chunk", "events", "embed", "index"]
-        if job and not ctx:
-            pass  # progress handled by caller
 
         # 1. File identification + content identity (SHA-256, not path)
         stage("identify")
@@ -280,6 +373,10 @@ class IngestionPipeline:
         sid = source_id_for(path)
         done("identify")
 
+        # 1a. Canonicalize into the MediaStore: identical bytes from different
+        # paths collapse onto one stored object (dedup + moved-file support).
+        media_obj = self.media_store.put(path)
+
         # 1b. Duplicate detection: identical bytes already ingested?
         existing_src = self.db.get_source_by_hash(chash)
         if existing_src and existing_src["id"] != sid:
@@ -287,13 +384,62 @@ class IngestionPipeline:
             # reuse the existing source id, refresh its location, and do NOT
             # create a second set of memories.
             mime0 = mimetypes.guess_type(str(path))[0]
-            sid = self.db.upsert_source(existing_src["id"], str(path), path.name, modality,
-                                        mime_type=mime0, size_bytes=path.stat().st_size,
-                                        content_hash=chash,
-                                        file_modified_at=_mtime_iso(path))
-            return IngestionResult(source_id=sid, events_created=0, modality=modality,
-                                   warnings=["same content already indexed at new path "
-                                             "— treated as moved/copied file, skipped"])
+            sid = self.db.upsert_source(
+                existing_src["id"],
+                str(path),
+                path.name,
+                modality,
+                mime_type=mime0,
+                size_bytes=path.stat().st_size,
+                content_hash=chash,
+                file_modified_at=_mtime_iso(path),
+            )
+            self.db.add_media_asset(
+                f"asset-{sid}",
+                media_obj.key,
+                media_obj.sha256,
+                "original",
+                source_id=sid,
+                mime_type=mime0,
+                size_bytes=media_obj.size,
+            )
+            return IngestionResult(
+                source_id=sid,
+                events_created=0,
+                modality=modality,
+                warnings=[
+                    "same content already indexed at new path "
+                    "— treated as moved/copied file, skipped"
+                ],
+            )
+
+        # 1c. Incremental re-indexing: unchanged content processed by the same
+        # pipeline/extractor/embedder is reused, never reprocessed.  A changed
+        # hash falls through to full re-ingest below; version drift triggers a
+        # cheap metadata-only update unless REINGEST_ON_VERSION_CHANGE is set.
+        if existing_src and existing_src["id"] == sid:
+            prior_pipeline = (
+                (existing_src["pipeline_version"] or "")
+                if "pipeline_version" in existing_src.keys()
+                else ""
+            )
+            prior_embed = (
+                (existing_src["embedding_model"] or "")
+                if "embedding_model" in existing_src.keys()
+                else ""
+            )
+            unchanged_versions = (not prior_pipeline and not prior_embed) or (
+                prior_pipeline == PIPELINE_VERSION and prior_embed == self.embedder.model_id
+            )
+            if unchanged_versions:
+                return IngestionResult(
+                    source_id=sid,
+                    events_created=0,
+                    modality=modality,
+                    warnings=[
+                        "unchanged content + versions — reusing derived state (incremental skip)"
+                    ],
+                )
 
         # 2. Metadata extraction (incl. capture time — never import time)
         stage("metadata")
@@ -305,10 +451,33 @@ class IngestionPipeline:
             if duration is None:
                 warnings.append("ffprobe unavailable: media duration unknown")
         captured_iso, time_source = capture_time_for(path)
-        self.db.upsert_source(sid, str(path), path.name, modality,
-                              mime_type=mime, size_bytes=size, duration_seconds=duration,
-                              content_hash=chash, captured_at=captured_iso,
-                              file_modified_at=_mtime_iso(path))
+        self.db.upsert_source(
+            sid,
+            str(path),
+            path.name,
+            modality,
+            mime_type=mime,
+            size_bytes=size,
+            duration_seconds=duration,
+            content_hash=chash,
+            captured_at=captured_iso,
+            file_modified_at=_mtime_iso(path),
+            extraction_version=EXTRACTION_VERSION,
+            embedding_model=self.embedder.model_id,
+            embedding_version=self.embedder.model_id,
+            pipeline_version=PIPELINE_VERSION,
+        )
+        # Persist the canonical media reference (bytes stay on disk).
+        self.db.add_media_asset(
+            f"asset-{sid}",
+            media_obj.key,
+            media_obj.sha256,
+            "original",
+            source_id=sid,
+            mime_type=mime,
+            size_bytes=media_obj.size,
+            duration_seconds=duration,
+        )
         done("metadata")
 
         # 3+4. Modality processing & chunking
@@ -318,8 +487,15 @@ class IngestionPipeline:
             self.scheduler.route("pdf_parse")
             pages = extract_pdf_pages(path)
             chunks = chunk_pdf_pages(pages)
-            self.db.upsert_source(sid, str(path), path.name, modality, mime_type=mime,
-                                  size_bytes=size, page_count=len(pages))
+            self.db.upsert_source(
+                sid,
+                str(path),
+                path.name,
+                modality,
+                mime_type=mime,
+                size_bytes=size,
+                page_count=len(pages),
+            )
         elif modality == Modality.DOCUMENT:
             self.scheduler.route("doc_parse")
             ext = path.suffix.lower()
@@ -340,22 +516,30 @@ class IngestionPipeline:
             if self.transcriber is None:
                 raise MissingDependency(
                     "No ASR model installed. Set up Whisper-Base (ONNX/QNN) via "
-                    "scripts/setup_models.py to transcribe audio.")
+                    "scripts/setup_models.py to transcribe audio."
+                )
             self.scheduler.route("asr")
             wav = path
             if path.suffix.lower() != ".wav":
                 wav = extract_audio_to_wav(path, self.data_dir)
             segments = self.transcriber.transcribe(wav)
             chunks = chunk_transcript(segments)
-            self.db.upsert_source(sid, str(path), path.name, modality, mime_type=mime,
-                                  size_bytes=size, duration_seconds=duration or
-                                  (segments[-1].end if segments else None))
+            self.db.upsert_source(
+                sid,
+                str(path),
+                path.name,
+                modality,
+                mime_type=mime,
+                size_bytes=size,
+                duration_seconds=duration or (segments[-1].end if segments else None),
+            )
         elif modality == Modality.VIDEO:
-            chunks = self._ingest_video(path, sid, warnings)
+            chunks = self._ingest_video(path, sid, warnings, media_obj)
         elif modality == Modality.IMAGE:
             if self.ocr is None:
                 raise MissingDependency(
-                    "No OCR model installed. Set up OCR (ONNX/QNN) via scripts/setup_models.py.")
+                    "No OCR model installed. Set up OCR (ONNX/QNN) via scripts/setup_models.py."
+                )
             self.scheduler.route("ocr")
             for rec in self.ocr.recognize(path):
                 c = Chunk(
@@ -429,7 +613,7 @@ class IngestionPipeline:
             self.scheduler.route("embedding")
             texts = [e.content for e in events]
             vecs = self.embedder.embed(texts)
-            for e, v in zip(events, vecs):
+            for e, v in zip(events, vecs, strict=True):
                 e.embedding = [float(x) for x in v]
                 e.metadata["embedding_model"] = self.embedder.model_id
         done("embed")
@@ -438,9 +622,13 @@ class IngestionPipeline:
         stage("index")
         n = self.db.add_events(events)
         import numpy as np
+
         ids = [e.id for e in events if e.embedding]
-        mat = np.asarray([e.embedding for e in events if e.embedding], dtype=np.float32) \
-            if ids else np.zeros((0, self.embedder.dim), dtype=np.float32)
+        mat = (
+            np.asarray([e.embedding for e in events if e.embedding], dtype=np.float32)
+            if ids
+            else np.zeros((0, self.embedder.dim), dtype=np.float32)
+        )
         if ids:
             self.index.add(ids, mat)
         done("index")
@@ -448,13 +636,17 @@ class IngestionPipeline:
         # 9. Relationships where useful (same-source sequential + topic overlap)
         self._link_events(events)
 
-        return IngestionResult(source_id=sid, events_created=n, modality=modality,
-                               warnings=warnings)
+        return IngestionResult(
+            source_id=sid, events_created=n, modality=modality, warnings=warnings
+        )
 
     # ------------------------------------------------------------------
-    def _ingest_video(self, path: Path, sid: str, warnings: list[str]) -> list[Chunk]:
+    def _ingest_video(
+        self, path: Path, sid: str, warnings: list[str], media_obj: MediaObject
+    ) -> list[Chunk]:
         """Video -> audio track (ASR) + adaptive keyframes (scene change) + OCR."""
         from .video.keyframes import adaptive_keyframes  # local import: optional deps
+
         chunks: list[Chunk] = []
         frames_dir = self.data_dir / f"{sid}_frames"
         try:
@@ -475,13 +667,43 @@ class IngestionPipeline:
                 if self.ocr is not None:
                     for rec in self.ocr.recognize(kf.path):
                         texts.append(rec["text"])
-                chunks.append(Chunk(
-                    text="\n".join(t for t in texts if t) or f"[keyframe at {kf.time:.1f}s]",
-                    timestamp_start=kf.time,
-                    timestamp_end=kf.time + kf.duration,
-                    metadata={"keyframe": True, "frame_id": kf.frame_id,
-                              "score": round(kf.score, 3)},
-                ))
+                # Persist the selected frame as a derived asset in the
+                # MediaStore (content-addressed, survives temp cleanup).
+                frame_key = None
+                try:
+                    kf_path = Path(kf.path)
+                    if kf_path.is_file():
+                        data = kf_path.read_bytes()
+                        deriv = self.media_store.create_derivative(
+                            media_obj.sha256, data, f"keyframe-{kf.frame_id}", extension=".jpg"
+                        )
+                        frame_key = deriv.key
+                        self.db.add_media_asset(
+                            f"asset-{sid}-{kf.frame_id}",
+                            deriv.key,
+                            deriv.sha256,
+                            "derived",
+                            source_id=sid,
+                            mime_type="image/jpeg",
+                            size_bytes=deriv.size,
+                            parent_asset_id=f"asset-{sid}",
+                            metadata={"timestamp": kf.time, "frame_id": kf.frame_id},
+                        )
+                except OSError:
+                    frame_key = None  # frame file unreadable; keep event text-only
+                chunks.append(
+                    Chunk(
+                        text="\n".join(t for t in texts if t) or f"[keyframe at {kf.time:.1f}s]",
+                        timestamp_start=kf.time,
+                        timestamp_end=kf.time + kf.duration,
+                        metadata={
+                            "keyframe": True,
+                            "frame_id": kf.frame_id,
+                            "score": round(kf.score, 3),
+                            "media_key": frame_key,
+                        },
+                    )
+                )
         except MissingDependency as e:
             warnings.append(f"Keyframe extraction skipped: {e}")
         return chunks
@@ -496,11 +718,15 @@ class IngestionPipeline:
         # same_topic via concept/concept-token overlap between neighbors
         for i in range(len(events)):
             for j in range(i + 1, min(i + 6, len(events))):
-                a, b = set(_content_tokens(events[i].content)), set(_content_tokens(events[j].content))
+                a, b = (
+                    set(_content_tokens(events[i].content)),
+                    set(_content_tokens(events[j].content)),
+                )
                 if a and b and len(a & b) / max(1, len(a | b)) > 0.25:
                     self.db.add_relationship(events[i].id, events[j].id, "same_topic", 0.6)
 
 
 def _content_tokens(text: str) -> list[str]:
     import re
+
     return re.findall(r"[a-z0-9]{4,}", text.lower())

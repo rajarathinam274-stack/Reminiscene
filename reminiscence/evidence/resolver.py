@@ -7,25 +7,24 @@ evidence entry.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
-from ..memory.events import MemoryEvent, Modality, format_timestamp
+from ..memory.events import MemoryEvent, format_timestamp
 from ..storage.database import Database
 
 
 @dataclass
 class Evidence:
     memory_id: str
-    source: str                    # display name (file name)
-    source_path: str               # local filesystem path for "open" action
+    source: str  # display name (file name)
+    source_path: str  # local filesystem path for "open" action
     modality: str
-    page: Optional[int] = None
-    section: Optional[str] = None
-    timestamp: Optional[str] = None        # formatted HH:MM:SS
-    timestamp_start: Optional[float] = None
-    timestamp_end: Optional[float] = None
-    bbox: Optional[list[float]] = None     # image/screenshot region
+    page: int | None = None
+    section: str | None = None
+    timestamp: str | None = None  # formatted HH:MM:SS
+    timestamp_start: float | None = None
+    timestamp_end: float | None = None
+    bbox: list[float] | None = None  # image/screenshot region
     snippet: str = ""
 
     def to_dict(self) -> dict:
@@ -42,7 +41,9 @@ class Evidence:
         if self.timestamp:
             parts.append(self.timestamp)
         if self.bbox:
-            parts.append(f"[{int(self.bbox[0])},{int(self.bbox[1])}]-[{int(self.bbox[2])},{int(self.bbox[3])}]")
+            parts.append(
+                f"[{int(self.bbox[0])},{int(self.bbox[1])}]-[{int(self.bbox[2])},{int(self.bbox[3])}]"
+            )
         return " · ".join(parts)
 
 
@@ -50,7 +51,7 @@ class EvidenceResolver:
     def __init__(self, db: Database):
         self.db = db
 
-    def resolve(self, ev: MemoryEvent, snippet_chars: int = 280) -> Optional[Evidence]:
+    def resolve(self, ev: MemoryEvent, snippet_chars: int = 280) -> Evidence | None:
         src = self.db.get_source(ev.source_id)
         if src is None:
             return None  # orphaned event -> no fabricated evidence

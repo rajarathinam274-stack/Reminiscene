@@ -10,20 +10,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
-from ...ai.embeddings.embedder import Embedder, HashingTFIDFEmbedder, get_embedder
+from ...ai.embeddings.embedder import Embedder, get_embedder
 from ...ai.registry import ModelRegistry
 from ...ai.scheduler import AIWorkloadScheduler, SchedulerConfig
-from ...evidence.generator import (Answer, AnswerGenerator,
-                                   ExtractiveGroundedAnswerer)
+from ...evidence.generator import Answer, AnswerGenerator, ExtractiveGroundedAnswerer
 from ...evidence.resolver import EvidenceResolver
 from ...ingestion.pipeline import IngestionPipeline, IngestionResult
 from ...memory.events import MemoryEvent
-from ...retrieval.hybrid import Candidate, HybridRetriever, RetrievalWeights
-from ...retrieval.query_classifier import ClassifiedQuery, QueryClassifier
+from ...retrieval.hybrid import Candidate, HybridRetriever
+from ...retrieval.query_classifier import QueryClassifier
 from ...storage.database import Database
 from ...storage.vector_index import NumpyVectorIndex, VectorIndex
 from ...workers.queue import Job, JobQueue
@@ -36,7 +34,7 @@ class EnginePaths:
     models_dir: Path
 
     @staticmethod
-    def default() -> "EnginePaths":
+    def default() -> EnginePaths:
         base = Path.home() / ".reminiscence"
         return EnginePaths(base, base / "reminiscence.db", base / "models")
 
@@ -44,11 +42,11 @@ class EnginePaths:
 class ReminiscenceEngine:
     def __init__(
         self,
-        paths: Optional[EnginePaths] = None,
-        embedder: Optional[Embedder] = None,
-        answer_generator: Optional[AnswerGenerator] = None,
-        registry: Optional[ModelRegistry] = None,
-        scheduler_config: Optional[SchedulerConfig] = None,
+        paths: EnginePaths | None = None,
+        embedder: Embedder | None = None,
+        answer_generator: AnswerGenerator | None = None,
+        registry: ModelRegistry | None = None,
+        scheduler_config: SchedulerConfig | None = None,
     ):
         self.paths = paths or EnginePaths.default()
         self.paths.data_dir.mkdir(parents=True, exist_ok=True)
@@ -63,8 +61,11 @@ class ReminiscenceEngine:
         self.answerer = answer_generator or ExtractiveGroundedAnswerer()
         self.jobs = JobQueue(n_workers=2)
         self.pipeline = IngestionPipeline(
-            db=self.db, index=self.index, embedder=self.embedder,
-            scheduler=self.scheduler, data_dir=self.paths.data_dir,
+            db=self.db,
+            index=self.index,
+            embedder=self.embedder,
+            scheduler=self.scheduler,
+            data_dir=self.paths.data_dir,
         )
         self.jobs.register_handler("ingest", self._ingest_handler)
         self._restore_index()
@@ -86,8 +87,7 @@ class ReminiscenceEngine:
 
     def _ingest_handler(self, job: Job, ctx) -> dict:
         res = self.pipeline.ingest(job.payload["path"], job=job, ctx=ctx)
-        return {"source_id": res.source_id, "events": res.events_created,
-                "warnings": res.warnings}
+        return {"source_id": res.source_id, "events": res.events_created, "warnings": res.warnings}
 
     def ingest_now(self, path: str) -> IngestionResult:
         """Synchronous variant used by tests/scripts."""
@@ -115,7 +115,8 @@ class ReminiscenceEngine:
 
     def delete_source(self, source_id: str) -> int:
         rows = self.db._conn.execute(
-            "SELECT id FROM memory_events WHERE source_id=?", (source_id,)).fetchall()
+            "SELECT id FROM memory_events WHERE source_id=?", (source_id,)
+        ).fetchall()
         ids = [r["id"] for r in rows]
         self.index.remove(ids)
         return self.db.delete_source(source_id)

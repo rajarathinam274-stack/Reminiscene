@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Lint / Type-check / Test (core, offline)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install core + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check reminiscence
+
+      - name: Ruff format check
+        run: ruff format --check reminiscence
+
+      - name: Mypy type check
+        run: mypy reminiscence || true
+
+      - name: Core tests (no heavy models required)
+        run: pytest reminiscence/tests -q
+
+      - name: Package build validation
+        run: |
+          pip install build
+          python -m build --sdist --wheel

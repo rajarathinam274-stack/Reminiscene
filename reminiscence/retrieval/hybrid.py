@@ -9,36 +9,35 @@ Weights are configuration (tunable/evaluable), NOT claimed-optimal constants.
 
 from __future__ import annotations
 
-import math
-import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
 
-import numpy as np
-
+from ..ai.embeddings.embedder import Embedder
 from ..memory.events import MemoryEvent, Modality
 from ..storage.database import Database
 from ..storage.vector_index import VectorIndex
-from ..ai.embeddings.embedder import Embedder
 from .query_classifier import ClassifiedQuery, QueryCategory
 
 
 @dataclass
 class RetrievalWeights:
-    alpha: float = 0.45    # semantic similarity
-    beta: float = 0.35     # lexical relevance (BM25 normalized)
-    gamma: float = 0.10    # temporal relevance
-    delta: float = 0.05    # modality relevance
+    alpha: float = 0.45  # semantic similarity
+    beta: float = 0.35  # lexical relevance (BM25 normalized)
+    gamma: float = 0.10  # temporal relevance
+    delta: float = 0.05  # modality relevance
     epsilon: float = 0.05  # source relevance
-    zeta: float = 0.08     # graph/entity relevance
+    zeta: float = 0.08  # graph/entity relevance
 
     @staticmethod
-    def from_db(db: Database) -> "RetrievalWeights":
+    def from_db(db: Database) -> RetrievalWeights:
         w = db.get_setting("retrieval_weights")
         if isinstance(w, dict):
-            return RetrievalWeights(**{k: float(v) for k, v in w.items() if k in
-                                       ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")})
+            return RetrievalWeights(
+                **{
+                    k: float(v)
+                    for k, v in w.items()
+                    if k in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")
+                }
+            )
         return RetrievalWeights()
 
     def to_db(self, db: Database) -> None:
@@ -62,7 +61,7 @@ def _normalize_bm25(ranks: list[float]) -> list[float]:
     """Map negative-is-better bm25 values into [0,1] higher-is-better."""
     if not ranks:
         return []
-    vals = [-r for r in ranks]           # now higher is better
+    vals = [-r for r in ranks]  # now higher is better
     lo, hi = min(vals), max(vals)
     if hi - lo < 1e-9:
         return [1.0 for _ in vals]
@@ -75,7 +74,7 @@ class HybridRetriever:
         db: Database,
         index: VectorIndex,
         embedder: Embedder,
-        weights: Optional[RetrievalWeights] = None,
+        weights: RetrievalWeights | None = None,
     ):
         self.db = db
         self.index = index
@@ -132,13 +131,15 @@ class HybridRetriever:
             if cq.modality_hint:
                 c.modality_rel = 1.0 if ev.modality.value == cq.modality_hint else 0.0
             elif QueryCategory.VISUAL in cq.categories:
-                c.modality_rel = 1.0 if ev.modality in (Modality.IMAGE, Modality.VIDEO, Modality.PDF) else 0.2
+                c.modality_rel = (
+                    1.0 if ev.modality in (Modality.IMAGE, Modality.VIDEO, Modality.PDF) else 0.2
+                )
             else:
                 c.modality_rel = 0.5
             # source relevance
             if cq.source_hint:
                 src = self.db.get_source(ev.source_id)
-                name = (src["name"].lower() if src else "")
+                name = src["name"].lower() if src else ""
                 c.source_rel = 1.0 if cq.source_hint.lower().strip() in name else 0.0
             else:
                 c.source_rel = 0.5
@@ -155,8 +156,7 @@ class HybridRetriever:
                     if "graph" not in c.channels:
                         c.channels.append("graph")
         # second-degree expansion from strong lexical/semantic hits
-        seeds = [c.event.id for c in pool.values()
-                 if c.lexical > 0.7 or c.semantic > 0.7][:5]
+        seeds = [c.event.id for c in pool.values() if c.lexical > 0.7 or c.semantic > 0.7][:5]
         for sid in seeds:
             for _s, tgt, conf in self.db.related(sid)[:8]:
                 tev = self.db.get_event(tgt)

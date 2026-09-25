@@ -16,7 +16,6 @@ import math
 import re
 from abc import ABC, abstractmethod
 from collections import Counter
-from typing import Optional
 
 import numpy as np
 
@@ -62,7 +61,7 @@ class HashingTFIDFEmbedder(Embedder):
     def _tokens(self, text: str) -> list[str]:
         return _WORD_RE.findall(text.lower())
 
-    def fit(self, corpus: list[str]) -> "HashingTFIDFEmbedder":
+    def fit(self, corpus: list[str]) -> HashingTFIDFEmbedder:
         for t in corpus:
             seen = set(self._tokens(t))
             self._doc_freq.update(seen)
@@ -100,16 +99,36 @@ class HashingTFIDFEmbedder(Embedder):
 
 # ---------------------------------------------------------------------------
 class OnnxMiniLMEmbedder(Embedder):
-    """all-MiniLM-L6-v2 via ONNX Runtime (QNN EP preferred when verified)."""
+    """all-MiniLM-L6-v2 via ONNX Runtime (QNN EP preferred when verified).
+
+    Production path requirements (P0 — production embeddings):
+    * tokenizer/model pairing enforced before any inference;
+    * batched inference with provider selection recorded per run;
+    * dimension validation on every output;
+    * traceable metadata: model_id / model_version / quantization /
+      execution_provider.  A different model is never silently substituted —
+    the metadata always reflects the artifact actually loaded.
+    """
 
     model_id = "embed-minilm-l6-v2"
+    EXPECTED_DIM = 384
 
-    def __init__(self, model_path: str, tokenizer=None):
+    def __init__(
+        self,
+        model_path: str,
+        tokenizer=None,
+        *,
+        model_version: str = "unknown",
+        quantization: str = "fp32",
+        expected_dim: int | None = None,
+    ):
         from ..runtime import OnnxRuntimeAdapter
 
         self._adapter = OnnxRuntimeAdapter(model_path)
         self._tokenizer = tokenizer  # callable(text)->dict of arrays
-        self._dim = 384
+        self._dim = expected_dim or self.EXPECTED_DIM
+        self.model_version = model_version
+        self.quantization = quantization
 
     @property
     def dim(self) -> int:
@@ -117,37 +136,77 @@ class OnnxMiniLMEmbedder(Embedder):
 
     @property
     def runtime_info(self):
+        """Actual runtime/provider used — never a claim, always a measurement."""
         return self._adapter.info
+
+    @property
+    def metadata(self) -> dict:
+        info = self._adapter.info
+        return {
+            "model_id": self.model_id,
+            "model_version": self.model_version,
+            "quantization": self.quantization,
+            "execution_provider": getattr(info, "execution_provider", None),
+            "runtime": getattr(info, "runtime", None),
+            "dim": self._dim,
+        }
 
     def embed(self, texts: list[str]) -> np.ndarray:
         if self._tokenizer is None:
             raise RuntimeError(
-                "OnnxMiniLMEmbedder requires a tokenizer (WordPiece). "
-                "Install model artifacts via scripts/setup_models.py."
+                "OnnxMiniLMEmbedder requires a tokenizer paired with the model. "
+                "Install model artifacts via the model manager (allow_network=True once), "
+                "never silently substitute a different model."
             )
         outs: list[np.ndarray] = []
         batch = 32
         for start in range(0, len(texts), batch):
-            enc = self._tokenizer(texts[start:start + batch])
+            enc = self._tokenizer(texts[start : start + batch])
             feed = {k: np.asarray(v, dtype=np.float32) for k, v in enc.items()}
-            result = self._adapter.run(feed)[0]      # (B, T, 384) last_hidden_state
+            result = self._adapter.run(feed)[0]  # (B, T, H) last_hidden_state
             mask = enc["attention_mask"]
             lens = np.asarray(mask).sum(axis=1)
-            pooled = np.stack([result[b, : int(l)] .mean(axis=0) for b, l in enumerate(lens)])
+            pooled = np.stack([result[b, : int(l)].mean(axis=0) for b, l in enumerate(lens)])
             outs.append(pooled)
         v = np.concatenate(outs, axis=0).astype(np.float32)
+        if v.ndim != 2 or v.shape[1] != self._dim:
+            raise RuntimeError(
+                f"dimension validation failed: model produced shape {v.shape}, "
+                f"expected (*, {self._dim}) — configured model does not match manifest"
+            )
         norms = np.linalg.norm(v, axis=1, keepdims=True)
         norms[norms == 0] = 1
         return v / norms
 
 
-def get_embedder(prefer_model_path: Optional[str] = None, dim: int = 512) -> Embedder:
-    """Factory honoring registry/availability; never fakes a model."""
+def get_embedder(
+    prefer_model_path: str | None = None,
+    dim: int = 512,
+    *,
+    tokenizer=None,
+    model_version: str = "unknown",
+    quantization: str = "fp32",
+    expected_dim: int | None = None,
+) -> Embedder:
+    """Factory honoring registry/availability; never fakes a model.
+
+    If an ONNX artifact is configured but cannot be loaded (missing runtime,
+    missing tokenizer pairing), the returned embedder is the clearly-labeled
+    local fallback — its ``model_id`` reports the truth so downstream code
+    and benchmarks never misattribute results to MiniLM.
+    """
     if prefer_model_path:
         try:
             from ..runtime import OnnxRuntimeAdapter
+
             if OnnxRuntimeAdapter.available():
-                emb = OnnxMiniLMEmbedder(prefer_model_path)
+                emb = OnnxMiniLMEmbedder(
+                    prefer_model_path,
+                    tokenizer=tokenizer,
+                    model_version=model_version,
+                    quantization=quantization,
+                    expected_dim=expected_dim,
+                )
                 emb._adapter.load()
                 return emb
         except Exception:

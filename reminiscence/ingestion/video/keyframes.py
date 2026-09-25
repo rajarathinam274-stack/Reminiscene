@@ -15,16 +15,15 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
 class Keyframe:
     frame_id: str
     path: Path
-    time: float          # seconds into the video
-    duration: float      # seconds this keyframe represents
-    score: float         # visual-change score that triggered selection
+    time: float  # seconds into the video
+    duration: float  # seconds this keyframe represents
+    score: float  # visual-change score that triggered selection
 
 
 class MissingDependency(Exception):
@@ -38,26 +37,28 @@ def _ffmpeg() -> str:
     return exe
 
 
-def probe_duration(path: Path) -> Optional[float]:
+def probe_duration(path: Path) -> float | None:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
     try:
         out = subprocess.run(
-            [ffprobe, "-v", "error", "-show_entries", "format=duration",
-             "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=20, check=True,
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=True,
         )
         return float(json.loads(out.stdout)["format"]["duration"])
     except Exception:
         return None
 
 
-def _mean_abs_diff_png(a: Path, b: Path) -> Optional[float]:
+def _mean_abs_diff_png(a: Path, b: Path) -> float | None:
     """Cheap visual difference via Pillow grayscale downsampled images."""
     try:
-        from PIL import Image
         import numpy as np
+        from PIL import Image
     except ImportError:
         return None
     with Image.open(a) as ia, Image.open(b) as ib:
@@ -83,9 +84,19 @@ def adaptive_keyframes(
     prefix = out_dir / "cand_%06d.png"
     interval = 1.0 / max(0.05, sample_fps)
     subprocess.run(
-        [ffmpeg, "-y", "-loglevel", "error", "-i", str(video_path),
-         "-vf", f"fps={sample_fps}", str(prefix)],
-        check=True, timeout=3600,
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"fps={sample_fps}",
+            str(prefix),
+        ],
+        check=True,
+        timeout=3600,
     )
     candidates = sorted(out_dir.glob("cand_*.png"))
     if not candidates:
@@ -114,14 +125,20 @@ def adaptive_keyframes(
     for idx, (p, t, iv) in enumerate(kept):
         kf_path = out_dir / f"key_{idx:04d}.png"
         p.replace(kf_path)
-        dur = (kept[idx + 1][1] - t) if idx + 1 < len(kept) else max(iv, (duration - t) if duration else iv)
-        keyframes.append(Keyframe(
-            frame_id=f"{video_path.stem}#kf{idx:04d}",
-            path=kf_path,
-            time=round(t, 3),
-            duration=round(max(0.1, dur), 3),
-            score=1.0 if idx == 0 else round(min(1.0, diffs[min(idx, len(diffs) - 1)])),
-        ))
+        dur = (
+            (kept[idx + 1][1] - t)
+            if idx + 1 < len(kept)
+            else max(iv, (duration - t) if duration else iv)
+        )
+        keyframes.append(
+            Keyframe(
+                frame_id=f"{video_path.stem}#kf{idx:04d}",
+                path=kf_path,
+                time=round(t, 3),
+                duration=round(max(0.1, dur), 3),
+                score=1.0 if idx == 0 else round(min(1.0, diffs[min(idx, len(diffs) - 1)])),
+            )
+        )
     # cleanup unselected candidates
     for leftover in out_dir.glob("cand_*.png"):
         leftover.unlink(missing_ok=True)
