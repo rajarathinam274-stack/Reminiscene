@@ -85,11 +85,11 @@ def _validate_key(key: str) -> str:
 class MediaObject:
     """Metadata describing one stored media object."""
 
-    key: str                 # relative path inside the store, e.g. objects/ab/abcd...
-    sha256: str              # content hash (== filename for objects/)
-    size: int                # bytes
-    category: str            # objects | thumbnails | derived
-    created_at: str          # ISO-8601 UTC
+    key: str  # relative path inside the store, e.g. objects/ab/abcd...
+    sha256: str  # content hash (== filename for objects/)
+    size: int  # bytes
+    category: str  # objects | thumbnails | derived
+    created_at: str  # ISO-8601 UTC
 
     def to_dict(self) -> dict:
         return {
@@ -210,7 +210,9 @@ class MediaStore:
             created_at=_utc_now_iso(),
         )
 
-    def put_bytes(self, data: bytes, *, category: str = DERIVED, extension: str = "") -> MediaObject:
+    def put_bytes(
+        self, data: bytes, *, category: str = DERIVED, extension: str = ""
+    ) -> MediaObject:
         """Store arbitrary bytes.  Canonical objects are content addressed;
         derived/thumbnail assets get a hash-based name plus optional suffix."""
         if category not in (OBJECTS, THUMBNAILS, DERIVED):
@@ -297,7 +299,9 @@ class MediaStore:
         self._atomic_write(target, lambda fh: fh.write(data))
         return MediaObject(key, digest, len(data), DERIVED, _utc_now_iso())
 
-    def create_thumbnail(self, source_sha256: str, data: bytes, *, extension: str = ".jpg") -> MediaObject:
+    def create_thumbnail(
+        self, source_sha256: str, data: bytes, *, extension: str = ".jpg"
+    ) -> MediaObject:
         """Store a thumbnail associated with a canonical object hash."""
         digest = hashlib.sha256(data).hexdigest()
         suffix = extension if extension.startswith(".") else f".{extension}"

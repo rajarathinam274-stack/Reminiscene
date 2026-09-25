@@ -147,7 +147,9 @@ def test_media_asset_reference_persists(tmp_path: Path):
     db = Database(tmp_path / "db.sqlite")
     store = MediaStore(tmp_path / "media")
     obj = store.put(_write(tmp_path / "src.txt", b"content identity test"))
-    db.upsert_source("s1", str(tmp_path / "src.txt"), "src.txt", "document", content_hash=obj.sha256)
+    db.upsert_source(
+        "s1", str(tmp_path / "src.txt"), "src.txt", "document", content_hash=obj.sha256
+    )
     db.add_media_asset("a1", obj.key, obj.sha256, "original", source_id="s1", size_bytes=obj.size)
     assets = db.get_media_assets("s1")
     assert len(assets) == 1
@@ -190,7 +192,7 @@ def test_pipeline_ingest_registers_canonical_media(tmp_path: Path):
 
 def test_schema_version_4_migrations_applied(tmp_path: Path):
     db = Database(tmp_path / "db.sqlite")
-    assert db.get_schema_version() == 4
+    assert db.get_schema_version() >= 4
     cols = {r[1] for r in db._conn.execute("PRAGMA table_info(media_assets)")}
     assert {"asset_id", "media_key", "sha256", "media_type", "parent_asset_id"} <= cols
     src_cols = {r[1] for r in db._conn.execute("PRAGMA table_info(sources)")}

@@ -413,6 +413,34 @@ class IngestionPipeline:
                 ],
             )
 
+        # 1c. Incremental re-indexing: unchanged content processed by the same
+        # pipeline/extractor/embedder is reused, never reprocessed.  A changed
+        # hash falls through to full re-ingest below; version drift triggers a
+        # cheap metadata-only update unless REINGEST_ON_VERSION_CHANGE is set.
+        if existing_src and existing_src["id"] == sid:
+            prior_pipeline = (
+                (existing_src["pipeline_version"] or "")
+                if "pipeline_version" in existing_src.keys()
+                else ""
+            )
+            prior_embed = (
+                (existing_src["embedding_model"] or "")
+                if "embedding_model" in existing_src.keys()
+                else ""
+            )
+            unchanged_versions = (not prior_pipeline and not prior_embed) or (
+                prior_pipeline == PIPELINE_VERSION and prior_embed == self.embedder.model_id
+            )
+            if unchanged_versions:
+                return IngestionResult(
+                    source_id=sid,
+                    events_created=0,
+                    modality=modality,
+                    warnings=[
+                        "unchanged content + versions — reusing derived state (incremental skip)"
+                    ],
+                )
+
         # 2. Metadata extraction (incl. capture time — never import time)
         stage("metadata")
         mime = mimetypes.guess_type(str(path))[0]
@@ -434,6 +462,10 @@ class IngestionPipeline:
             content_hash=chash,
             captured_at=captured_iso,
             file_modified_at=_mtime_iso(path),
+            extraction_version=EXTRACTION_VERSION,
+            embedding_model=self.embedder.model_id,
+            embedding_version=self.embedder.model_id,
+            pipeline_version=PIPELINE_VERSION,
         )
         # Persist the canonical media reference (bytes stay on disk).
         self.db.add_media_asset(

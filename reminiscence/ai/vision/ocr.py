@@ -30,7 +30,7 @@ class OcrRegion:
     """One recognized text region with spatial evidence anchor."""
 
     text: str
-    page: int = 1                       # image index within source (PDF page etc.)
+    page: int = 1  # image index within source (PDF page etc.)
     bbox: tuple[float, float, float, float] | None = None  # x0, y0, x1, y1
     confidence: float | None = None
 
@@ -87,16 +87,24 @@ class OnnxOCRPipeline(OCRBackendBase):
 
     model_id = "ocr-onnx-pipeline"
 
-    def __init__(self, detector: DetectorFn | None, recognizer: RecognizerFn | None,
-                 *, image_size_fn: Callable[[Path], tuple[int, int]] | None = None):
+    def __init__(
+        self,
+        detector: DetectorFn | None,
+        recognizer: RecognizerFn | None,
+        *,
+        image_size_fn: Callable[[Path], tuple[int, int]] | None = None,
+    ):
         self._detector = detector
         self._recognizer = recognizer
         self._size_fn = image_size_fn or _default_image_size
 
     def health(self) -> OcrHealth:
         if self._detector is None or self._recognizer is None:
-            return OcrHealth(False, self.model_id,
-                             detail="OCR model artifacts not installed; configure via model manager")
+            return OcrHealth(
+                False,
+                self.model_id,
+                detail="OCR model artifacts not installed; configure via model manager",
+            )
         return OcrHealth(True, self.model_id, detail="pipeline ready")
 
     def recognize(self, image_path: str | Path, *, page: int = 1) -> OcrResult:
@@ -110,11 +118,13 @@ class OnnxOCRPipeline(OCRBackendBase):
             x0, y0, x1, y1 = _scale_box(box_norm[0], w, hh)
             text, conf = self._recognizer(path, box_norm[0])  # type: ignore[misc]
             if text.strip():
-                regions.append(OcrRegion(text=text.strip(), page=page,
-                                         bbox=(x0, y0, x1, y1), confidence=conf))
+                regions.append(
+                    OcrRegion(text=text.strip(), page=page, bbox=(x0, y0, x1, y1), confidence=conf)
+                )
         full_text = "\n".join(r.text for r in regions)
-        return OcrResult(page=page, text=full_text, regions=regions,
-                         provider_used=None, model_id=self.model_id)
+        return OcrResult(
+            page=page, text=full_text, regions=regions, provider_used=None, model_id=self.model_id
+        )
 
 
 def _default_image_size(path: Path) -> tuple[int, int]:
@@ -154,7 +164,10 @@ class TesseractBackend(OCRBackendBase):
             raise RuntimeError(f"OCR unavailable: {h.detail}")
         proc = subprocess.run(
             ["tesseract", str(image_path), "-", "--psm", "6", "tsv"],
-            capture_output=True, text=True, timeout=300, check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
         )
         if proc.returncode != 0:
             raise RuntimeError(f"tesseract failed: {proc.stderr[:200]}")
@@ -174,8 +187,12 @@ class TesseractBackend(OCRBackendBase):
             bs = boxes.get(key, [])
             bbox = None
             if bs:
-                bbox = (min(b[0] for b in bs), min(b[1] for b in bs),
-                        max(b[2] for b in bs), max(b[3] for b in bs))
+                bbox = (
+                    min(b[0] for b in bs),
+                    min(b[1] for b in bs),
+                    max(b[2] for b in bs),
+                    max(b[3] for b in bs),
+                )
             regions.append(OcrRegion(text=" ".join(words), page=page, bbox=bbox, confidence=None))
         text = "\n".join(" ".join(w) for w in lines.values())
         return OcrResult(page=page, text=text, regions=regions, model_id=self.model_id)

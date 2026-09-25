@@ -76,7 +76,10 @@ class WhisperOnnxTranscriber(TranscriberBase):
 
     def __init__(self, model_dir: str | Path, *, preferred_providers: list[str] | None = None):
         self.model_dir = Path(model_dir)
-        self.preferred_providers = preferred_providers or ["QNNExecutionProvider", "CPUExecutionProvider"]
+        self.preferred_providers = preferred_providers or [
+            "QNNExecutionProvider",
+            "CPUExecutionProvider",
+        ]
         self._session = None
         self._provider_used: str | None = None
 
@@ -84,12 +87,17 @@ class WhisperOnnxTranscriber(TranscriberBase):
     def health(self) -> AsrHealth:
         encoder = self.model_dir / "encoder_model.onnx"
         if not encoder.is_file():
-            return AsrHealth(False, self.model_id,
-                             detail=f"missing {encoder.name}; install via model manager")
+            return AsrHealth(
+                False, self.model_id, detail=f"missing {encoder.name}; install via model manager"
+            )
         try:
             import onnxruntime  # noqa: F401
         except ImportError:
-            return AsrHealth(False, self.model_id, detail="onnxruntime not installed (pip install reminiscence[audio])")
+            return AsrHealth(
+                False,
+                self.model_id,
+                detail="onnxruntime not installed (pip install reminiscence[audio])",
+            )
         if shutil.which("ffmpeg") is None:
             return AsrHealth(False, self.model_id, detail="ffmpeg binary not found on PATH")
         return AsrHealth(True, self.model_id, provider=None, detail="ready to load")
@@ -102,12 +110,27 @@ class WhisperOnnxTranscriber(TranscriberBase):
         if ffmpeg is None:
             raise RuntimeError("ffmpeg not available; cannot decode audio locally")
         proc = subprocess.run(
-            [ffmpeg, "-nostdin", "-i", str(wav_path), "-ac", "1", "-ar", "16000",
-             "-f", "f32le", "-"],
-            capture_output=True, timeout=3600, check=False,
+            [
+                ffmpeg,
+                "-nostdin",
+                "-i",
+                str(wav_path),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-f",
+                "f32le",
+                "-",
+            ],
+            capture_output=True,
+            timeout=3600,
+            check=False,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg decode failed: {proc.stderr[-400:].decode(errors='replace')}")
+            raise RuntimeError(
+                f"ffmpeg decode failed: {proc.stderr[-400:].decode(errors='replace')}"
+            )
         import array
 
         samples = array.array("f")
@@ -151,10 +174,19 @@ class WhisperOnnxTranscriber(TranscriberBase):
         if decoder.is_file():
             segments = self._greedy_decode(enc_out, wav_path)
         else:
-            segments = [Segment(start=0.0, end=duration,
-                                text="[audio detected — decoder artifact not installed]")]
-        return TranscriptResult(segments=segments, language=language,
-                                provider_used=self._provider_used, model_id=self.model_id)
+            segments = [
+                Segment(
+                    start=0.0,
+                    end=duration,
+                    text="[audio detected — decoder artifact not installed]",
+                )
+            ]
+        return TranscriptResult(
+            segments=segments,
+            language=language,
+            provider_used=self._provider_used,
+            model_id=self.model_id,
+        )
 
     def transcribe(self, wav_path: str | Path) -> list[Segment]:
         return self.transcribe_segments(wav_path).segments
@@ -169,11 +201,20 @@ class WhisperOnnxTranscriber(TranscriberBase):
         frames = np.lib.stride_tricks.sliding_window_view(samples, n_fft)[::hop] * window
         spec = np.abs(np.fft.rfft(frames, axis=-1)).astype(np.float32)
         # mel-spaced edge frequencies (Hz)
-        mel_edges_hz = 700.0 * (10 ** (
-            2595.0 * np.log10(1.0 + np.linspace(0, sr / 2, n_mels + 2) / 700.0) / 2595.0
-        ) - 1.0) if False else 700.0 * (10 ** (
-            np.linspace(0, 2595.0 * np.log10(1.0 + (sr / 2) / 700.0), n_mels + 2) / 2595.0
-        ) - 1.0)
+        mel_edges_hz = (
+            700.0
+            * (
+                10 ** (2595.0 * np.log10(1.0 + np.linspace(0, sr / 2, n_mels + 2) / 700.0) / 2595.0)
+                - 1.0
+            )
+            if False
+            else 700.0
+            * (
+                10
+                ** (np.linspace(0, 2595.0 * np.log10(1.0 + (sr / 2) / 700.0), n_mels + 2) / 2595.0)
+                - 1.0
+            )
+        )
         fft_hz = np.linspace(0, sr / 2, spec.shape[-1])
         weights = np.zeros((n_mels, spec.shape[-1]), dtype=np.float32)
         for m in range(n_mels):

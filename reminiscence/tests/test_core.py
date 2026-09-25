@@ -6,8 +6,11 @@ All tests are offline and dependency-light (SQLite FTS5 + numpy only).
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,7 +34,7 @@ from reminiscence.memory.chunking import (
 from reminiscence.memory.events import MemoryEvent, Modality, Region, format_timestamp
 from reminiscence.retrieval.hybrid import RetrievalWeights
 from reminiscence.retrieval.query_classifier import QueryCategory, QueryClassifier
-from reminiscence.storage.database import Database
+from reminiscence.storage.database import SCHEMA_VERSION, Database
 from reminiscence.storage.vector_index import NumpyVectorIndex
 
 # ---------------------------------------------------------------------------
@@ -484,7 +487,7 @@ class TestPhase14DataFoundation:
         """A v2 database must upgrade non-destructively to v3."""
         db_path = str(tmp_path / "up.db")
         db = Database(db_path)
-        assert db.get_schema_version() == 4
+        assert db.get_schema_version() == SCHEMA_VERSION
         src = source_id_for(tmp_path)
         db.upsert_source(src, str(tmp_path / "a.txt"), "a.txt", Modality.DOCUMENT)
         ev = MemoryEvent(
@@ -508,7 +511,7 @@ class TestPhase14DataFoundation:
         # reopen: user_version persisted at 3, data intact
         db.close()
         db2 = Database(db_path)
-        assert db2.get_schema_version() == 4
+        assert db2.get_schema_version() == SCHEMA_VERSION
         assert db2.get_event("e1") is not None
         db2.close()
 
@@ -642,5 +645,143 @@ class TestPhase14DataFoundation:
                 assert ev.pipeline_version == PIPELINE_VERSION
                 assert ev.extraction_version == EXTRACTION_VERSION
                 assert ev.embedding_version  # model identity recorded
+        finally:
+            engine.close()
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 — persistent jobs + incremental indexing regressions
+# ---------------------------------------------------------------------------
+
+
+class TestSprint5PersistentJobs:
+    def test_job_persists_state_to_sqlite(self, tmp_path):
+        from reminiscence.workers.queue import JobQueue
+
+        db = Database(str(tmp_path / "jobs.db"))
+        q = JobQueue(n_workers=1, db=db)
+        try:
+            done_evt = threading.Event()
+
+            def handler(job, ctx):
+                ctx.stage("work")
+                ctx.complete_stage("work")
+                done_evt.set()
+                return 42
+
+            q.register_handler("k", handler)
+            job = q.submit("k", {"path": "/x/y.txt"}, ["work"])
+            assert done_evt.wait(5)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                row = db.get_job(job.id)
+                if row and row["status"] == "done":
+                    break
+                time.sleep(0.05)
+            row = db.get_job(job.id)
+            assert row["status"] == "done"
+            assert json.loads(row["payload"])["path"] == "/x/y.txt"
+            assert row["attempts"] == 1
+            assert row["finished_at"] is not None
+        finally:
+            q.shutdown()
+            db.close()
+
+    def test_retry_with_bounded_attempts_then_failed(self, tmp_path):
+        from reminiscence.workers.queue import JobQueue
+
+        attempts = []
+
+        def flaky(job, ctx):
+            attempts.append(job.attempts)
+            raise RuntimeError("boom")
+
+        q = JobQueue(n_workers=1)
+        try:
+            q.register_handler("flaky", flaky)
+            job = q.submit("flaky", {}, ["s"], max_attempts=2)
+            deadline = time.time() + 15
+            while time.time() < deadline and job.status.value != "failed":
+                time.sleep(0.05)
+            assert job.status.value == "failed"
+            assert job.attempts == 2
+            assert len(attempts) == 2  # bounded retries, no infinite loop
+        finally:
+            q.shutdown()
+
+    def test_restart_recovery_requeues_unfinished_jobs(self, tmp_path):
+        """Simulate a crash: persisted queued/running jobs are re-run by a
+        fresh queue opened on the same database."""
+        from reminiscence.workers.queue import JobQueue
+
+        db_path = str(tmp_path / "recover.db")
+        db = Database(db_path)
+        # A job that was submitted but never processed (process died first).
+        db.create_job(
+            "job-crash",
+            "ingest",
+            ["extract", "index"],
+            source_path="/data/a.pdf",
+            payload={"path": "/data/a.pdf"},
+        )
+        # An orphaned RUNNING row (crashed mid-job) must also be recovered;
+        # its handler resumes by skipping completed stages.
+        db.create_job("job-mid", "ingest", ["extract", "index"], payload={})
+        db.update_job("job-mid", status="running", completed_stages=["extract"])
+        db.close()
+
+        db2 = Database(db_path)
+        q = JobQueue(n_workers=1, db=db2)
+        seen = []
+        try:
+
+            def handler(job, ctx):
+                remaining = [s for s in job.stages if s not in job.completed_stages]
+                seen.append((job.id, tuple(remaining)))
+                for s in remaining:
+                    ctx.stage(s)
+                    ctx.complete_stage(s)
+                return "ok"
+
+            q.register_handler("ingest", handler)
+            recovered = q.recover()
+            assert {j.id for j in recovered} == {"job-crash", "job-mid"}
+            deadline = time.time() + 10
+            while time.time() < deadline and len(seen) < 2:
+                time.sleep(0.05)
+            assert ("job-mid", ("index",)) in seen  # resume skipped 'extract'
+            d2 = db2.get_job("job-crash")
+            assert d2["status"] == "done"
+        finally:
+            q.shutdown()
+            db2.close()
+
+    def test_incremental_reingest_skips_unchanged_content(self, tmp_path):
+        engine = _make_engine(tmp_path)
+        try:
+            f = tmp_path / "notes.txt"
+            f.write_text("# Transformers\nThe attention mechanism lets models weigh tokens.")
+            r1 = engine.pipeline.ingest(f)
+            assert r1.events_created > 0
+            r2 = engine.pipeline.ingest(f)  # same path, same bytes, same versions
+            assert r2.events_created == 0
+            assert any("incremental skip" in w for w in r2.warnings)
+            # content changed -> full re-ingest happens (new events created)
+            f.write_text("# Transformers v2\nAttention plus rotary embeddings and KV caching.")
+            r3 = engine.pipeline.ingest(f)
+            assert r3.events_created > 0
+        finally:
+            engine.close()
+
+    def test_source_version_provenance_recorded(self, tmp_path):
+        engine = _make_engine(tmp_path)
+        try:
+            f = tmp_path / "v.txt"
+            f.write_text("quantized inference on edge devices runs locally")
+            engine.pipeline.ingest(f)
+            src = engine.db.get_source(source_id_for(f))
+            assert src["pipeline_version"] == PIPELINE_VERSION
+            assert src["extraction_version"] == EXTRACTION_VERSION
+            assert src["embedding_model"]
         finally:
             engine.close()

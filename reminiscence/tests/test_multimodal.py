@@ -11,8 +11,8 @@ from reminiscence.ai.asr.asr import (
     get_transcriber,
 )
 from reminiscence.ai.vision.ocr import (
-    OnnxOCRPipeline,
     OcrRegion,
+    OnnxOCRPipeline,
     UnavailableOCR,
     get_ocr_backend,
 )
@@ -77,8 +77,11 @@ class TestOcrAdapterForPipeline:
 
         class FakeBackend:
             def recognize(self, path, *, page=1):
-                return OcrResult(page=page, text="hello ocr",
-                                 regions=[OcrRegion("hello ocr", page, (1, 2, 3, 4), 0.9)])
+                return OcrResult(
+                    page=page,
+                    text="hello ocr",
+                    regions=[OcrRegion("hello ocr", page, (1, 2, 3, 4), 0.9)],
+                )
 
         adapter = OcrAdapter(FakeBackend())
         recs = adapter.recognize(tmp_path / "img.png")
@@ -125,14 +128,20 @@ class TestAsrAdapterForPipeline:
         class FakeTranscriber:
             def transcribe_segments(self, wav):
                 return TranscriptResult(
-                    segments=[Segment(0.0, 4.2, "first utterance"),
-                              Segment(4.2, 9.0, "second utterance")],
-                    language="en", provider_used="CPUExecutionProvider")
+                    segments=[
+                        Segment(0.0, 4.2, "first utterance"),
+                        Segment(4.2, 9.0, "second utterance"),
+                    ],
+                    language="en",
+                    provider_used="CPUExecutionProvider",
+                )
 
         adapter = AsrAdapter(FakeTranscriber())
         segs = adapter.transcribe(tmp_path / "a.wav")
         assert [(s.start, s.end, s.text) for s in segs] == [
-            (0.0, 4.2, "first utterance"), (4.2, 9.0, "second utterance")]
+            (0.0, 4.2, "first utterance"),
+            (4.2, 9.0, "second utterance"),
+        ]
 
     def test_adapter_rejects_legacy_interface(self):
         class Legacy:

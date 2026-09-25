@@ -18,7 +18,7 @@ from typing import Any
 
 from ..memory.events import MemoryEvent, Modality, Region
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _utcnow() -> str:
@@ -329,6 +329,23 @@ _MIGRATIONS: dict[int, list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_ma_type ON media_assets(media_type)",
         "ALTER TABLE sources ADD COLUMN media_key TEXT",
     ],
+    # Sprint 5 (persistent jobs): durable job state with retries, priority,
+    # payload persistence and incremental-indexing version columns.
+    5: [
+        "ALTER TABLE jobs ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3",
+        "ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE jobs ADD COLUMN started_at TEXT",
+        "ALTER TABLE jobs ADD COLUMN finished_at TEXT",
+        "ALTER TABLE jobs ADD COLUMN worker_version TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+        # -- incremental re-indexing provenance ------------------------------
+        "ALTER TABLE sources ADD COLUMN extraction_version TEXT",
+        "ALTER TABLE sources ADD COLUMN embedding_model TEXT",
+        "ALTER TABLE sources ADD COLUMN embedding_version TEXT",
+        "ALTER TABLE sources ADD COLUMN pipeline_version TEXT",
+    ],
 }
 
 
@@ -397,6 +414,10 @@ class Database:
         content_hash: str | None = None,
         captured_at: str | None = None,
         file_modified_at: str | None = None,
+        extraction_version: str | None = None,
+        embedding_model: str | None = None,
+        embedding_version: str | None = None,
+        pipeline_version: str | None = None,
     ) -> str:
         """Insert or update a source.
 
@@ -430,8 +451,10 @@ class Database:
                 INSERT INTO sources(id, path, name, modality, mime_type, size_bytes,
                                     duration_seconds, page_count, imported_at, metadata,
                                     content_hash, original_path, current_path, filename,
-                                    file_modified_at, last_seen_at, status)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active')
+                                    file_modified_at, last_seen_at, status,
+                                    extraction_version, embedding_model,
+                                    embedding_version, pipeline_version)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     path=excluded.path, name=excluded.name, modality=excluded.modality,
                     mime_type=excluded.mime_type, size_bytes=excluded.size_bytes,
@@ -440,7 +463,15 @@ class Database:
                     content_hash=COALESCE(excluded.content_hash, sources.content_hash),
                     current_path=excluded.current_path,
                     filename=excluded.filename,
-                    last_seen_at=excluded.last_seen_at
+                    last_seen_at=excluded.last_seen_at,
+                    extraction_version=COALESCE(excluded.extraction_version,
+                                                sources.extraction_version),
+                    embedding_model=COALESCE(excluded.embedding_model,
+                                             sources.embedding_model),
+                    embedding_version=COALESCE(excluded.embedding_version,
+                                               sources.embedding_version),
+                    pipeline_version=COALESCE(excluded.pipeline_version,
+                                              sources.pipeline_version)
                 """,
                 (
                     source_id,
@@ -459,6 +490,10 @@ class Database:
                     name,
                     file_modified_at,
                     now,
+                    extraction_version,
+                    embedding_model,
+                    embedding_version,
+                    pipeline_version,
                 ),
             )
             if captured_at:
@@ -568,7 +603,9 @@ class Database:
     def list_media_keys(self) -> list[str]:
         """All referenced media keys (for orphan detection against MediaStore)."""
         with self._lock:
-            return [r["media_key"] for r in self._conn.execute("SELECT media_key FROM media_assets")]
+            return [
+                r["media_key"] for r in self._conn.execute("SELECT media_key FROM media_assets")
+            ]
 
     def find_source_by_media_key(self, media_key: str) -> sqlite3.Row | None:
         with self._lock:
@@ -577,7 +614,6 @@ class Database:
                 "WHERE m.media_key=? LIMIT 1",
                 (media_key,),
             ).fetchone()
-
 
     # -- memory events ------------------------------------------------------
     def add_event(self, ev: MemoryEvent) -> str:
@@ -950,13 +986,24 @@ class Database:
         return [(r["source_memory"], r["target_memory"], r["confidence"]) for r in rows]
 
     # -- jobs -------------------------------------------------------------------
-    def create_job(self, job_id: str, kind: str, stages: list[str], source_path: str = "") -> None:
+    def create_job(
+        self,
+        job_id: str,
+        kind: str,
+        stages: list[str],
+        source_path: str = "",
+        payload: dict | None = None,
+        priority: int = 0,
+        max_attempts: int = 3,
+        worker_version: str = "",
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 """INSERT OR REPLACE INTO jobs
                    (id, kind, status, progress, current_stage, stages, completed_stages,
-                    source_path, created_at, updated_at)
-                   VALUES (?,?,'queued',0,?,?, '[]',?,?,?)""",
+                    source_path, created_at, updated_at, payload, attempts, max_attempts,
+                    priority, worker_version)
+                   VALUES (?,?,'queued',0,?,?, '[]',?,?,?,?,0,?,?,?)""",
                 (
                     job_id,
                     kind,
@@ -965,6 +1012,10 @@ class Database:
                     source_path,
                     _utcnow(),
                     _utcnow(),
+                    json.dumps(payload or {}),
+                    max_attempts,
+                    priority,
+                    worker_version,
                 ),
             )
             self._conn.commit()
@@ -977,11 +1028,18 @@ class Database:
         current_stage: str | None = None,
         completed_stages: list[str] | None = None,
         error: str | None = None,
+        attempts: int | None = None,
     ) -> None:
         sets, vals = ["updated_at=?"], [_utcnow()]
         if status is not None:
             sets.append("status=?")
             vals.append(status)
+            if status == "running":
+                sets.append("started_at=COALESCE(started_at, ?)")
+                vals.append(_utcnow())
+            elif status in ("done", "failed", "cancelled"):
+                sets.append("finished_at=?")
+                vals.append(_utcnow())
         if progress is not None:
             sets.append("progress=?")
             vals.append(progress)
@@ -994,14 +1052,46 @@ class Database:
         if error is not None:
             sets.append("error=?")
             vals.append(error)
+        if attempts is not None:
+            sets.append("attempts=?")
+            vals.append(attempts)
         with self._lock:
             self._conn.execute(f"UPDATE jobs SET {','.join(sets)} WHERE id=?", (*vals, job_id))
             self._conn.commit()
 
     def cancel_job(self, job_id: str) -> None:
         with self._lock:
-            self._conn.execute("UPDATE jobs SET cancelled=1 WHERE id=?", (job_id,))
+            self._conn.execute(
+                "UPDATE jobs SET cancelled=1, updated_at=? WHERE id=?", (_utcnow(), job_id)
+            )
             self._conn.commit()
+
+    # -- durable job recovery ---------------------------------------------------
+    def recover_jobs(self) -> list[sqlite3.Row]:
+        """Return jobs that must be re-queued after a process restart.
+
+        Includes queued/retrying work plus RUNNING rows (a running row found
+        at startup means the previous process died mid-job; it is resumable
+        because handlers are expected to skip already-completed stages).
+        Ordered by priority DESC, created_at ASC.
+        """
+        with self._lock:
+            return self._conn.execute(
+                """SELECT * FROM jobs
+                   WHERE status IN ('queued', 'retrying', 'running') AND cancelled = 0
+                   ORDER BY priority DESC, created_at ASC"""
+            ).fetchall()
+
+    def mark_interrupted_running_failed(self, reason: str = "interrupted by shutdown") -> int:
+        """Optional stricter recovery mode: fail orphaned running jobs."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE jobs SET status='failed', error=?, updated_at=? "
+                "WHERE status='running' AND cancelled=0",
+                (reason, _utcnow()),
+            )
+            self._conn.commit()
+            return cur.rowcount
 
     def get_job(self, job_id: str) -> sqlite3.Row | None:
         with self._lock:
