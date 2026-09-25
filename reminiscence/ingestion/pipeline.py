@@ -266,6 +266,48 @@ class OCRBackend:
 
 
 # ---------------------------------------------------------------------------
+# Adapters bridging ai.asr / ai.vision.ocr backends into the pipeline
+# interfaces above (Sprint 4 wiring — keeps ingestion decoupled from engines)
+# ---------------------------------------------------------------------------
+
+
+class AsrAdapter(Transcriber):
+    """Adapts a ``reminiscence.ai.asr`` transcriber to the pipeline interface.
+
+    The rich backend returns a TranscriptResult carrying language and the
+    *actual* execution provider; we surface plain Segments here and stash the
+    metadata on ``last_result`` so callers (jobs, benchmarks) can record it.
+    """
+
+    def __init__(self, backend):
+        if not hasattr(backend, "transcribe_segments"):
+            raise TypeError(
+                "AsrAdapter expects an ai.asr backend exposing transcribe_segments(); "
+                "pass the pipeline-native Transcriber implementation directly instead."
+            )
+        self.backend = backend
+        self.last_result = None
+
+    def transcribe(self, wav_path: str | Path) -> list[Segment]:
+        result = self.backend.transcribe_segments(wav_path)
+        self.last_result = result
+        return list(result.segments)
+
+
+class OcrAdapter(OCRBackend):
+    """Adapts a ``reminiscence.ai.vision.ocr`` backend to the pipeline dict shape."""
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def recognize(self, image_path: str | Path) -> list[dict]:
+        result = self.backend.recognize(image_path)
+        return [r.to_dict() for r in result.regions] or [
+            {"text": result.text, "page": result.page, "bbox": None, "confidence": None}
+        ]
+
+
+# ---------------------------------------------------------------------------
 # Pipeline orchestrator
 # ---------------------------------------------------------------------------
 

@@ -1,10 +1,8 @@
+# Python bytecode and cache
 __pycache__/
 *.pyc
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-*.egg-info/
-dist/
-build/
-data/
-*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
