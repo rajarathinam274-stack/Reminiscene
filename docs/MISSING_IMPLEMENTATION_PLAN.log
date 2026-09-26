@@ -1,0 +1,183 @@
+REMINISCENCE — MISSING IMPLEMENTATION PLAN
+===============================================
+
+Purpose
+-------
+Track implementation that remains missing or partial in the current Reminiscene
+repository. Update this file whenever a subsystem moves from MISSING to PARTIAL
+or PARTIAL to DONE.
+
+STATUS
+------
+DONE       = implemented and validated
+PARTIAL    = foundation exists; production path incomplete
+MISSING    = implementation not yet present
+BLOCKED    = depends on hardware, model artifact, or external integration
+
+P0 — RELEASE-BLOCKING
+=====================
+
+1. Configuration consolidation — PARTIAL
+   Files: reminiscence/app/config/*, .env.example, docs/*
+   - Centralize environment-driven settings.
+   - Make CLI, engine, workers, storage and model manager consume the same paths.
+   - Document all supported variables.
+   Done when a clean machine starts using only documented configuration.
+
+2. Production multimodal ingestion — PARTIAL
+   Files: reminiscence/ingestion/*
+   - Complete PDF/DOCX/PPTX extraction edge cases.
+   - Complete audio decoding and ASR event generation.
+   - Complete image OCR/event generation.
+   - Connect video keyframes, ASR and OCR.
+   - Enforce file type, size and resource limits.
+   Done when every declared format either ingests successfully or returns a
+   deterministic unsupported/error state and ingestion is idempotent.
+
+3. Production ASR — PARTIAL
+   Files: reminiscence/ai/asr/asr.py, ingestion/audio/*, ai/model_manager.py
+   - Finish Whisper/ONNX inference.
+   - Preserve segment timestamps/language.
+   - Record actual execution provider.
+   - Provide explicit CPU fallback.
+   Done when real local audio produces searchable timestamped MemoryEvents.
+
+4. Production OCR/Vision — PARTIAL
+   Files: reminiscence/ai/vision/*, ingestion/images/*
+   - Finish ONNX OCR inference.
+   - Map regions into searchable events.
+   - Preserve confidence/provenance.
+   - Add optional visual understanding.
+   Done when image text is searchable with source/confidence metadata.
+
+5. Local LLM + EvidencePack — MISSING/PARTIAL
+   Files: reminiscence/ai/llm/*, reminiscence/evidence/*
+   - Add local LLM runtime adapter.
+   - Define EvidencePack as grounded context contract.
+   - Generate only from resolved evidence.
+   - Attach source/event references to claims.
+   Done when answers remain grounded and expose citations/references.
+
+6. Memory Graph service — PARTIAL
+   Files: storage/database.py, memory/events.py, new reminiscence/graph/*
+   - Entity extraction for people and places.
+   - Entity resolution/normalization.
+   - Graph traversal and multi-hop retrieval.
+   - Timeline/entity graph service.
+   Done when people/places link to memories and graph retrieval contributes evidence.
+
+7. Retrieval-quality evaluation — MISSING
+   Files: retrieval/*, benchmarks/*, new benchmark datasets
+   - Build deterministic query/relevance cases.
+   - Measure recall@k, precision@k, MRR/nDCG where applicable.
+   - Compare lexical, vector, temporal, graph and hybrid retrieval.
+   Done when offline runs are reproducible and record configuration.
+
+P1 — CORE PRODUCT
+=================
+
+8. PySide6 desktop UI — MISSING
+   Files: reminiscence/app/ui/*
+   - Main window, import, search, ask, timeline, sources, media viewer,
+     evidence panel, jobs and settings.
+   - Keep long-running work off the UI thread.
+   Done when UI and CLI share the same service/engine layer.
+
+9. Incremental indexing — PARTIAL
+   Files: ingestion/pipeline.py, storage/*, workers/queue.py
+   - Persist fingerprints.
+   - Detect unchanged and moved files.
+   - Re-index only changed extraction/embedding versions.
+   Done when repeated ingestion creates no duplicates and model-version changes
+   invalidate only dependent work.
+
+10. Backup/export — MISSING
+    Files: storage/media_store.py, new storage/backup.py, storage/export.py
+    - Portable memory/metadata/media export.
+    - Backup manifest and restore validation.
+    Done when export is portable and corruption/missing media is detectable.
+
+11. Secure deletion — MISSING
+    Files: storage/*, app/services/engine.py
+    - Remove source, dependent events, media, vector entries and graph links.
+    Done when deleted content is absent from lexical, vector, graph and evidence
+    retrieval paths.
+
+12. Security hardening — PARTIAL
+    Files: .github/workflows/security.yml, ingestion/*, ai/model_manager.py
+    - Make security gates blocking.
+    - Add resource-exhaustion limits.
+    - Harden malicious/invalid file handling.
+    - Isolate temporary files and redact sensitive logs.
+    - Strengthen model provenance/signature policy.
+    Done when required security checks fail the build on failure.
+
+13. CI quality gates — PARTIAL
+    Files: .github/workflows/ci.yml, pyproject.toml
+    - Make mypy blocking after cleanup.
+    - Add clean-install/package smoke tests.
+    - Verify wheel/sdist contents.
+    Done when CI passes without ignored required failures.
+
+P2 — ADVANCED
+=============
+
+14. Video semantic understanding — MISSING
+    - Scene segmentation.
+    - Semantic video embeddings.
+    - Multimodal alignment of ASR/OCR/keyframes.
+    Done when queries can retrieve relevant video timestamps.
+
+15. People/face pipeline — MISSING
+    - Explicit opt-in face embeddings.
+    - Identity assignment and manual correction.
+    - Revocation/deletion path.
+    Done when biometric processing is disabled by default and fully removable.
+
+16. Place extraction/geographic normalization — PARTIAL
+    - Normalize EXIF/GPS and textual place mentions.
+    - Preserve source/confidence.
+    - Never make external geocoding a hidden dependency.
+
+17. Snapdragon/QNN validation — BLOCKED until target hardware
+    - Validate actual QNN/NPU execution.
+    - Record provider/model/quantization.
+    - Compare CPU/NPU latency and power where observable.
+    Done when NPU claims are backed by actual provider telemetry.
+
+18. Observability — PARTIAL
+    - Structured inference/job/retrieval telemetry.
+    - No raw personal content in normal logs.
+    Done when failures and performance regressions are diagnosable safely.
+
+19. Release engineering — PARTIAL
+    - Version policy, release workflow, clean platform installation and artifact
+      validation.
+    Done when a clean install from the built artifact succeeds.
+
+IMPLEMENTATION ORDER
+====================
+A. Stabilize: configuration -> hygiene -> CI/security -> ingestion limits
+B. Engine: ASR -> OCR -> incremental indexing -> retrieval evaluation
+C. Intelligence: graph -> EvidencePack/local LLM -> backup/export -> deletion
+D. Product: PySide6 UI -> media/evidence viewer -> settings/jobs
+E. Advanced: video -> people/places -> Snapdragon/QNN -> observability/release
+
+DEFINITION OF DONE
+==================
+Every completed item must have:
+- implementation integrated into the main architecture
+- automated normal/failure-path tests
+- provenance and source metadata
+- privacy/offline-by-default compliance
+- measured runtime/provider claims
+- matching documentation
+- passing required CI/security gates
+
+MVP NON-GOALS
+=============
+- distributed/cloud workers
+- mandatory cloud AI
+- silent online model downloads
+- biometric processing by default
+- unconstrained generation without grounded retrieval
