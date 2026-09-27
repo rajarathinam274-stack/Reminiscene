@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f4f1ea" />
+  <title>Reminiscence — Private memory, made searchable</title>
+  <style>
+    :root { --ink:#1f2926; --muted:#77817a; --line:#dfe3dc; --paper:#fbfaf7; --canvas:#f1f0eb; --sage:#aab8a4; --deep:#30433a; --rust:#b66d4b; --yellow:#e9c873; --white:#fff; --shadow:0 18px 40px rgba(38,48,43,.08); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--canvas); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible, input:focus-visible, a:focus-visible { outline:3px solid #c18a54; outline-offset:3px; }
+    ::selection { background:#d5dfcf; color:var(--deep); }
+    .app { display:grid; grid-template-columns:248px minmax(0,1fr); min-height:100vh; }
+    .sidebar { background:var(--deep); color:#e7eee7; padding:26px 18px 20px; display:flex; flex-direction:column; }
+    .brand { display:flex; align-items:center; gap:11px; padding:0 12px 34px; color:#fff; }
+    .brand-mark { width:35px; height:35px; border-radius:50% 48% 52% 45%; background:var(--yellow); color:var(--deep); display:grid; place-items:center; font-family:Georgia,serif; font-size:19px; transform:rotate(-12deg); }
+    .brand-name { font:700 20px Georgia,serif; letter-spacing:-.03em; }
+    .brand-sub { display:block; color:#aebbb1; font:10px/1.2 ui-monospace, SFMono-Regular, monospace; letter-spacing:.14em; text-transform:uppercase; margin-top:3px; }
+    .nav-label { color:#8fa196; font:10px ui-monospace, SFMono-Regular, monospace; letter-spacing:.16em; text-transform:uppercase; padding:0 13px 10px; }
+    .nav { display:grid; gap:5px; }
+    .nav button { border:0; background:transparent; color:#bfcbc1; border-radius:10px; display:flex; gap:12px; align-items:center; text-align:left; width:100%; padding:12px 13px; font-size:14px; transition:.2s ease; }
+    .nav button:hover { color:#fff; background:rgba(255,255,255,.08); }
+    .nav button.active { background:#486052; color:#fff; box-shadow:inset 3px 0 var(--yellow); }
+    .nav svg { width:17px; height:17px; opacity:.85; }
+    .sidebar-bottom { margin-top:auto; border-top:1px solid rgba(255,255,255,.12); padding:18px 10px 0; }
+    .privacy-chip { display:flex; align-items:center; gap:9px; font-size:12px; color:#cbd8cc; }
+    .privacy-dot { width:8px; height:8px; background:#a9cf9a; border-radius:50%; box-shadow:0 0 0 4px rgba(169,207,154,.13); }
+    .privacy-copy { color:#92a69a; line-height:1.5; font-size:11px; margin:10px 0 0; }
+    main { min-width:0; padding:26px clamp(20px,4vw,56px) 48px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:30px; }
+    .crumb { color:var(--muted); font-size:13px; }
+    .crumb strong { color:var(--ink); font-weight:600; }
+    .top-actions { display:flex; align-items:center; gap:10px; }
+    .icon-button { width:40px; height:40px; border:1px solid var(--line); background:var(--paper); color:var(--muted); border-radius:12px; display:grid; place-items:center; }
+    .icon-button:hover { color:var(--ink); border-color:#bbc6ba; }
+    .avatar { width:40px; height:40px; background:#d1ddcf; border-radius:50%; display:grid; place-items:center; font:600 13px Georgia,serif; color:var(--deep); }
+    .welcome { display:flex; align-items:end; justify-content:space-between; gap:25px; margin-bottom:25px; }
+    h1, h2, h3, p { margin:0; }
+    h1 { font:500 clamp(32px,4vw,48px)/1.05 Georgia,serif; letter-spacing:-.055em; color:var(--deep); }
+    .welcome p { margin-top:10px; color:var(--muted); font-size:14px; }
+    .primary { border:0; background:var(--rust); color:#fff; border-radius:11px; padding:12px 16px; display:inline-flex; align-items:center; gap:9px; font-weight:650; box-shadow:0 7px 16px rgba(182,109,75,.2); transition:.2s ease; white-space:nowrap; }
+    .primary:hover { background:#a65c3b; transform:translateY(-1px); }
+    .search-wrap { position:relative; margin-bottom:29px; }
+    .search-wrap svg { position:absolute; left:16px; top:15px; width:18px; color:#87928b; }
+    .search { width:100%; border:1px solid var(--line); background:var(--paper); border-radius:14px; padding:15px 115px 15px 46px; color:var(--ink); box-shadow:0 4px 10px rgba(34,43,38,.02); }
+    .search::placeholder { color:#9ba59e; }
+    .search-hint { position:absolute; right:13px; top:10px; border:1px solid var(--line); background:#f5f4ef; color:#9ba49d; border-radius:7px; padding:4px 7px; font:11px ui-monospace,monospace; }
+    .section-heading { display:flex; justify-content:space-between; align-items:center; margin:0 0 13px; }
+    .section-heading h2 { font:600 16px Georgia,serif; letter-spacing:-.02em; }
+    .section-heading a { color:var(--rust); text-decoration:none; font-size:12px; font-weight:650; }
+    .overview { display:grid; grid-template-columns:1.25fr 1fr 1fr; gap:14px; margin-bottom:29px; }
+    .stat { background:var(--paper); border:1px solid var(--line); border-radius:15px; padding:18px; min-height:130px; position:relative; overflow:hidden; }
+    .stat:first-child { background:#dce5d7; border-color:#d0dbc9; }
+    .stat .stat-label { color:var(--muted); font-size:12px; }
+    .stat:first-child .stat-label { color:#617266; }
+    .stat-value { font:500 31px Georgia,serif; color:var(--deep); margin-top:16px; letter-spacing:-.05em; }
+    .stat-meta { color:#6c7f72; font-size:11px; margin-top:5px; }
+    .stat svg { position:absolute; right:18px; bottom:18px; color:#98aa9b; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(280px,.72fr); gap:18px; align-items:start; }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:16px; padding:21px; }
+    .memory-list { display:grid; gap:0; }
+    .memory { display:grid; grid-template-columns:62px minmax(0,1fr) auto; gap:15px; align-items:center; padding:15px 0; border-bottom:1px solid #e8ebe6; }
+    .memory:last-child { border-bottom:0; padding-bottom:1px; }
+    .memory-thumb { width:62px; height:62px; border-radius:11px; display:grid; place-items:center; color:var(--deep); }
+    .thumb-photo { background:linear-gradient(145deg,#f0cf9c 0 42%,#d49b67 43% 64%,#7c9382 65%); }
+    .thumb-note { background:#e5dcc7; }
+    .thumb-audio { background:#c7d6d0; }
+    .memory-title { font-size:14px; font-weight:650; color:var(--ink); margin-bottom:5px; }
+    .memory-desc { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:420px; }
+    .memory-tags { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+    .tag { background:#f0f1eb; color:#718077; border-radius:6px; padding:3px 6px; font:10px ui-monospace,monospace; }
+    .memory-date { color:#89938c; font:11px ui-monospace,monospace; white-space:nowrap; align-self:start; padding-top:3px; }
+    .right-stack { display:grid; gap:18px; }
+    .timeline { position:relative; padding:4px 0 0 22px; }
+    .timeline::before { content:""; position:absolute; left:4px; top:12px; bottom:4px; width:1px; background:#cfd8ce; }
+    .timeline-item { position:relative; padding:0 0 22px; }
+    .timeline-item::before { content:""; position:absolute; left:-21px; top:3px; width:7px; height:7px; border:2px solid var(--paper); background:var(--rust); box-shadow:0 0 0 1px #c98e74; border-radius:50%; }
+    .timeline-date { font:10px ui-monospace,monospace; color:var(--rust); letter-spacing:.05em; text-transform:uppercase; margin-bottom:6px; }
+    .timeline-text { font-size:13px; line-height:1.45; color:#495750; }
+    .evidence { background:#f0e8d6; border-color:#e5d9bf; }
+    .evidence h2 { color:#684f36; }
+    .evidence p { color:#7b684f; font-size:12px; line-height:1.5; margin:11px 0 16px; }
+    .evidence-link { display:flex; gap:8px; color:#89603f; text-decoration:none; font-size:12px; font-weight:650; }
+    .filter-row { display:flex; gap:7px; margin:0 0 14px; overflow:auto; padding-bottom:2px; }
+    .filter { border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:7px; padding:6px 9px; font-size:11px; white-space:nowrap; }
+    .filter.active, .filter:hover { background:var(--deep); border-color:var(--deep); color:#fff; }
+    .empty { display:none; padding:28px 10px; text-align:center; color:var(--muted); font-size:13px; }
+    .toast { position:fixed; right:22px; bottom:22px; background:var(--deep); color:#fff; padding:13px 16px; border-radius:11px; font-size:13px; box-shadow:var(--shadow); transform:translateY(20px); opacity:0; pointer-events:none; transition:.25s ease; }
+    .toast.show { transform:none; opacity:1; }
+    @media (max-width:900px) { .app { grid-template-columns:1fr; } .sidebar { padding:15px 18px; flex-direction:row; align-items:center; gap:18px; position:sticky; top:0; z-index:3; } .brand { padding:0; } .brand-sub, .nav-label, .sidebar-bottom { display:none; } .nav { display:flex; overflow:auto; } .nav button { width:auto; white-space:nowrap; padding:9px 11px; } .nav button.active { box-shadow:inset 0 -3px var(--yellow); } main { padding-top:24px; } }
+    @media (max-width:700px) { main { padding:22px 16px 35px; } .topbar { margin-bottom:23px; } .welcome { display:block; } .welcome .primary { margin-top:18px; width:100%; justify-content:center; } .overview { grid-template-columns:1fr 1fr; } .stat:first-child { grid-column:1 / -1; } .workspace { grid-template-columns:1fr; } .memory { grid-template-columns:50px minmax(0,1fr); gap:11px; } .memory-thumb { width:50px; height:50px; } .memory-date { grid-column:2; padding:0; margin-top:-8px; } .panel { padding:17px; } }
+    @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; scroll-behavior:auto !important; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand"><div class="brand-mark">R</div><div><div class="brand-name">Reminiscence</div><span class="brand-sub">private memory</span></div></div>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav">
+        <button class="active" data-view="Overview"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</button>
+        <button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search memories</button>
+        <button data-view="Timeline"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 3v18M6 7h6a3 3 0 0 1 0 6H6m0 0h7a3 3 0 0 1 0 6H6"/></svg>Timeline</button>
+        <button data-view="Sources"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V20h13.5A2.5 2.5 0 0 0 20 17.5"/></svg>Sources</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="privacy-chip"><span class="privacy-dot"></span>Everything stays local</div><p class="privacy-copy">Your memories are indexed on this device. Nothing is uploaded without your say.</p></div>
+    </aside>
+    <main>
+      <div class="topbar"><div class="crumb"><strong>Workspace</strong><span> / </span> Overview</div><div class="top-actions"><button class="icon-button" aria-label="Open settings" data-action="settings"><svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 3.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H2a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 8.9 3.3V3a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 10h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 1.4Z"/></svg></button><div class="avatar" aria-label="Profile">AM</div></div></div>
+      <section class="welcome"><div><h1>Good morning, Alex.</h1><p>Your memory garden is growing quietly.</p></div><button class="primary" id="importButton"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>Import memories</button><input id="fileInput" type="file" multiple hidden /></section>
+      <div class="search-wrap"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><input class="search" id="searchInput" type="search" placeholder="Search your memories… try “summer trips” or “when did we move?”" aria-label="Search your memories" /><span class="search-hint">⌘ K</span></div>
+      <section class="overview" aria-label="Memory overview"><div class="stat"><div class="stat-label">Total memories</div><div class="stat-value">2,438</div><div class="stat-meta">+ 28 this week</div><svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M4 17.5C7 14 8 10 12 12s4 6 8 1"/><path d="M4 20V4m0 16h16"/></svg></div><div class="stat"><div class="stat-label">People recognized</div><div class="stat-value">48</div><div class="stat-meta">Across 12 places</div><svg width="31" height="31" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20c.7-3.8 2.9-5.5 7-5.5s6.3 1.7 7 5.5"/></svg></div><div class="stat"><div class="stat-label">Index health</div><div class="stat-value">100%</div><div class="stat-meta">Last synced just now</div><svg width="31" height="31" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/></svg></div></section>
+      <div class="workspace"><section class="panel"><div class="section-heading"><h2>Recent memories</h2><a href="#" id="viewAll">View all</a></div><div class="filter-row"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="photo">Photos</button><button class="filter" data-filter="note">Notes</button><button class="filter" data-filter="audio">Audio</button></div><div class="memory-list" id="memoryList"><article class="memory" data-type="photo"><div class="memory-thumb thumb-photo"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg></div><div><div class="memory-title">A slow morning in Oia</div><div class="memory-desc">The light came through the blue shutters around 7:20.</div><div class="memory-tags"><span class="tag">Santorini</span><span class="tag">summer 2023</span></div></div><div class="memory-date">JUN 18, 2023</div></article><article class="memory" data-type="note"><div class="memory-thumb thumb-note"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><div><div class="memory-title">The apartment hunt</div><div class="memory-desc">Notes from our first viewing in the east village.</div><div class="memory-tags"><span class="tag">New York</span><span class="tag">milestone</span></div></div><div class="memory-date">MAR 04, 2022</div></article><article class="memory" data-type="audio"><div class="memory-thumb thumb-audio"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M8 18V6l10-2v12"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/></svg></div><div><div class="memory-title">Voice note · “Call Mum”</div><div class="memory-desc">A reminder about the recipe she made for Diwali.</div><div class="memory-tags"><span class="tag">audio</span><span class="tag">family</span></div></div><div class="memory-date">OCT 24, 2021</div></article></div><div class="empty" id="emptyState">No memories match this filter yet.</div></section><div class="right-stack"><section class="panel"><div class="section-heading"><h2>On your timeline</h2><a href="#">Open timeline</a></div><div class="timeline"><div class="timeline-item"><div class="timeline-date">Today · 9:42 AM</div><div class="timeline-text">Imported 12 new memories from <strong>~/Pictures/Trips</strong></div></div><div class="timeline-item"><div class="timeline-date">Yesterday</div><div class="timeline-text">You revisited memories tagged <strong>“home”</strong></div></div><div class="timeline-item"><div class="timeline-date">September 2023</div><div class="timeline-text">7 memories connected to <strong>Alex, Priya</strong></div></div></div></section><section class="panel evidence"><h2>Ask your memory</h2><p>Get an answer grounded in your own files, with the source moments attached.</p><a class="evidence-link" href="#searchInput" id="askLink">Try a question <span>→</span></a></section></div></div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script>
+    const toast = (message) => { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => el.classList.remove('show'), 2800); };
+    const input = document.querySelector('#searchInput');
+    document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active')); button.classList.add('active'); document.querySelector('.crumb').innerHTML = `<strong>Workspace</strong><span> / </span> ${button.dataset.view}`; if (button.dataset.view !== 'Overview') toast(`${button.dataset.view} view is ready for backend wiring.`); }));
+    document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.filter').forEach(b => b.classList.remove('active')); button.classList.add('active'); const type = button.dataset.filter; let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = type === 'all' || memory.dataset.type === type; memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; }));
+    input.addEventListener('input', () => { const term = input.value.toLowerCase().trim(); let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = !term || memory.textContent.toLowerCase().includes(term); memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').textContent = term ? `No memories found for “${term}”.` : 'No memories match this filter yet.'; document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; });
+    document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); input.focus(); } });
+    document.querySelector('#importButton').addEventListener('click', () => document.querySelector('#fileInput').click());
+    document.querySelector('#fileInput').addEventListener('change', event => { if (event.target.files.length) toast(`${event.target.files.length} file${event.target.files.length > 1 ? 's' : ''} selected — import flow ready.`); });
+    document.querySelector('#askLink').addEventListener('click', event => { event.preventDefault(); input.value = 'What moments made this place feel like home?'; input.focus(); input.dispatchEvent(new Event('input')); });
+    document.querySelector('#viewAll').addEventListener('click', event => { event.preventDefault(); toast('Full memory library is ready for backend wiring.'); });
+    document.querySelector('[data-action="settings"]').addEventListener('click', () => toast('Settings are intentionally local-first in this prototype.'));
+  </script>
+</body>
+</html>
