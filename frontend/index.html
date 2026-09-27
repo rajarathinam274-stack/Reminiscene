@@ -3,133 +3,151 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#f4f1ea" />
-  <title>Reminiscence — Private memory, made searchable</title>
+  <meta name="theme-color" content="#080b0d" />
+  <title>Reminiscence // Snapdragon-ready local memory</title>
   <style>
-    :root { --ink:#1f2926; --muted:#77817a; --line:#dfe3dc; --paper:#fbfaf7; --canvas:#f1f0eb; --sage:#aab8a4; --deep:#30433a; --rust:#b66d4b; --yellow:#e9c873; --white:#fff; --shadow:0 18px 40px rgba(38,48,43,.08); }
+    :root { --bg:#080b0d; --panel:#101518; --panel-2:#151b1e; --line:#273135; --line-bright:#344147; --text:#edf2f0; --muted:#879498; --orange:#ff5b22; --orange-2:#ff8a45; --cyan:#7be6d0; --lime:#bbef65; --amber:#e9c36a; --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace; --sans:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --display:Arial,sans-serif; }
     * { box-sizing:border-box; }
     html { scroll-behavior:smooth; }
-    body { margin:0; color:var(--ink); background:var(--canvas); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    button, input { font:inherit; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+    button,input { font:inherit; }
     button { cursor:pointer; }
-    button:focus-visible, input:focus-visible, a:focus-visible { outline:3px solid #c18a54; outline-offset:3px; }
-    ::selection { background:#d5dfcf; color:var(--deep); }
-    .app { display:grid; grid-template-columns:248px minmax(0,1fr); min-height:100vh; }
-    .sidebar { background:var(--deep); color:#e7eee7; padding:26px 18px 20px; display:flex; flex-direction:column; }
-    .brand { display:flex; align-items:center; gap:11px; padding:0 12px 34px; color:#fff; }
-    .brand-mark { width:35px; height:35px; border-radius:50% 48% 52% 45%; background:var(--yellow); color:var(--deep); display:grid; place-items:center; font-family:Georgia,serif; font-size:19px; transform:rotate(-12deg); }
-    .brand-name { font:700 20px Georgia,serif; letter-spacing:-.03em; }
-    .brand-sub { display:block; color:#aebbb1; font:10px/1.2 ui-monospace, SFMono-Regular, monospace; letter-spacing:.14em; text-transform:uppercase; margin-top:3px; }
-    .nav-label { color:#8fa196; font:10px ui-monospace, SFMono-Regular, monospace; letter-spacing:.16em; text-transform:uppercase; padding:0 13px 10px; }
+    button:focus-visible,input:focus-visible,a:focus-visible { outline:2px solid var(--orange-2); outline-offset:3px; }
+    ::selection { background:var(--orange); color:#fff; }
+    .app { display:grid; grid-template-columns:258px minmax(0,1fr); min-height:100vh; position:relative; }
+    .sidebar { border-right:1px solid var(--line); background:rgba(8,11,13,.92); padding:25px 17px 19px; display:flex; flex-direction:column; }
+    .brand { padding:0 12px 35px; }
+    .brand-top { display:flex; align-items:center; gap:11px; }
+    .chip-mark { width:34px; height:34px; border:1px solid var(--orange); color:var(--orange); display:grid; place-items:center; position:relative; font:700 13px var(--mono); }
+    .chip-mark::before,.chip-mark::after { content:""; position:absolute; inset:-5px 7px; border-top:1px solid var(--orange); border-bottom:1px solid var(--orange); opacity:.6; }
+    .chip-mark::after { inset:7px -5px; border:0; border-left:1px solid var(--orange); border-right:1px solid var(--orange); }
+    .brand-name { font:700 18px var(--display); letter-spacing:-.04em; }
+    .brand-sub { margin-top:4px; color:var(--orange-2); font:10px var(--mono); letter-spacing:.16em; text-transform:uppercase; }
+    .runtime { border:1px solid var(--line); background:rgba(16,21,24,.8); padding:14px 13px; margin:0 5px 26px; }
+    .runtime-label { display:flex; align-items:center; gap:8px; color:var(--muted); font:10px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+    .status-dot { width:6px; height:6px; border-radius:50%; background:var(--lime); }
+    .runtime-name { margin-top:11px; font:600 14px var(--mono); color:#fff; }
+    .runtime-detail { margin-top:7px; font-size:11px; line-height:1.45; color:var(--muted); }
+    .nav-title { padding:0 13px 10px; color:#68767a; font:10px var(--mono); letter-spacing:.15em; text-transform:uppercase; }
     .nav { display:grid; gap:5px; }
-    .nav button { border:0; background:transparent; color:#bfcbc1; border-radius:10px; display:flex; gap:12px; align-items:center; text-align:left; width:100%; padding:12px 13px; font-size:14px; transition:.2s ease; }
-    .nav button:hover { color:#fff; background:rgba(255,255,255,.08); }
-    .nav button.active { background:#486052; color:#fff; box-shadow:inset 3px 0 var(--yellow); }
-    .nav svg { width:17px; height:17px; opacity:.85; }
-    .sidebar-bottom { margin-top:auto; border-top:1px solid rgba(255,255,255,.12); padding:18px 10px 0; }
-    .privacy-chip { display:flex; align-items:center; gap:9px; font-size:12px; color:#cbd8cc; }
-    .privacy-dot { width:8px; height:8px; background:#a9cf9a; border-radius:50%; box-shadow:0 0 0 4px rgba(169,207,154,.13); }
-    .privacy-copy { color:#92a69a; line-height:1.5; font-size:11px; margin:10px 0 0; }
-    main { min-width:0; padding:26px clamp(20px,4vw,56px) 48px; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:30px; }
-    .crumb { color:var(--muted); font-size:13px; }
-    .crumb strong { color:var(--ink); font-weight:600; }
+    .nav button { border:0; background:transparent; color:#a9b5b6; display:flex; align-items:center; gap:12px; width:100%; padding:12px 13px; border-radius:5px; text-align:left; font-size:13px; transition:.18s ease; }
+    .nav button:hover { background:#171e21; color:#fff; }
+    .nav button.active { background:#211713; color:#fff; box-shadow:inset 2px 0 var(--orange); }
+    .nav svg { width:16px; height:16px; color:var(--cyan); }
+    .sidebar-foot { margin-top:auto; padding:16px 10px 0; border-top:1px solid var(--line); color:#6f7c80; font-size:10px; line-height:1.55; }
+    .sidebar-foot strong { color:#aab7b8; font-weight:600; }
+    main { min-width:0; padding:26px clamp(20px,4vw,58px) 52px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; }
+    .breadcrumb { color:#708084; font:11px var(--mono); letter-spacing:.04em; }
+    .breadcrumb strong { color:#c6d0cf; font-weight:500; }
     .top-actions { display:flex; align-items:center; gap:10px; }
-    .icon-button { width:40px; height:40px; border:1px solid var(--line); background:var(--paper); color:var(--muted); border-radius:12px; display:grid; place-items:center; }
-    .icon-button:hover { color:var(--ink); border-color:#bbc6ba; }
-    .avatar { width:40px; height:40px; background:#d1ddcf; border-radius:50%; display:grid; place-items:center; font:600 13px Georgia,serif; color:var(--deep); }
-    .welcome { display:flex; align-items:end; justify-content:space-between; gap:25px; margin-bottom:25px; }
-    h1, h2, h3, p { margin:0; }
-    h1 { font:500 clamp(32px,4vw,48px)/1.05 Georgia,serif; letter-spacing:-.055em; color:var(--deep); }
-    .welcome p { margin-top:10px; color:var(--muted); font-size:14px; }
-    .primary { border:0; background:var(--rust); color:#fff; border-radius:11px; padding:12px 16px; display:inline-flex; align-items:center; gap:9px; font-weight:650; box-shadow:0 7px 16px rgba(182,109,75,.2); transition:.2s ease; white-space:nowrap; }
-    .primary:hover { background:#a65c3b; transform:translateY(-1px); }
-    .search-wrap { position:relative; margin-bottom:29px; }
-    .search-wrap svg { position:absolute; left:16px; top:15px; width:18px; color:#87928b; }
-    .search { width:100%; border:1px solid var(--line); background:var(--paper); border-radius:14px; padding:15px 115px 15px 46px; color:var(--ink); box-shadow:0 4px 10px rgba(34,43,38,.02); }
-    .search::placeholder { color:#9ba59e; }
-    .search-hint { position:absolute; right:13px; top:10px; border:1px solid var(--line); background:#f5f4ef; color:#9ba49d; border-radius:7px; padding:4px 7px; font:11px ui-monospace,monospace; }
-    .section-heading { display:flex; justify-content:space-between; align-items:center; margin:0 0 13px; }
-    .section-heading h2 { font:600 16px Georgia,serif; letter-spacing:-.02em; }
-    .section-heading a { color:var(--rust); text-decoration:none; font-size:12px; font-weight:650; }
-    .overview { display:grid; grid-template-columns:1.25fr 1fr 1fr; gap:14px; margin-bottom:29px; }
-    .stat { background:var(--paper); border:1px solid var(--line); border-radius:15px; padding:18px; min-height:130px; position:relative; overflow:hidden; }
-    .stat:first-child { background:#dce5d7; border-color:#d0dbc9; }
-    .stat .stat-label { color:var(--muted); font-size:12px; }
-    .stat:first-child .stat-label { color:#617266; }
-    .stat-value { font:500 31px Georgia,serif; color:var(--deep); margin-top:16px; letter-spacing:-.05em; }
-    .stat-meta { color:#6c7f72; font-size:11px; margin-top:5px; }
-    .stat svg { position:absolute; right:18px; bottom:18px; color:#98aa9b; }
-    .workspace { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(280px,.72fr); gap:18px; align-items:start; }
-    .panel { background:var(--paper); border:1px solid var(--line); border-radius:16px; padding:21px; }
-    .memory-list { display:grid; gap:0; }
-    .memory { display:grid; grid-template-columns:62px minmax(0,1fr) auto; gap:15px; align-items:center; padding:15px 0; border-bottom:1px solid #e8ebe6; }
-    .memory:last-child { border-bottom:0; padding-bottom:1px; }
-    .memory-thumb { width:62px; height:62px; border-radius:11px; display:grid; place-items:center; color:var(--deep); }
-    .thumb-photo { background:linear-gradient(145deg,#f0cf9c 0 42%,#d49b67 43% 64%,#7c9382 65%); }
-    .thumb-note { background:#e5dcc7; }
-    .thumb-audio { background:#c7d6d0; }
-    .memory-title { font-size:14px; font-weight:650; color:var(--ink); margin-bottom:5px; }
-    .memory-desc { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:420px; }
-    .memory-tags { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
-    .tag { background:#f0f1eb; color:#718077; border-radius:6px; padding:3px 6px; font:10px ui-monospace,monospace; }
-    .memory-date { color:#89938c; font:11px ui-monospace,monospace; white-space:nowrap; align-self:start; padding-top:3px; }
-    .right-stack { display:grid; gap:18px; }
-    .timeline { position:relative; padding:4px 0 0 22px; }
-    .timeline::before { content:""; position:absolute; left:4px; top:12px; bottom:4px; width:1px; background:#cfd8ce; }
-    .timeline-item { position:relative; padding:0 0 22px; }
-    .timeline-item::before { content:""; position:absolute; left:-21px; top:3px; width:7px; height:7px; border:2px solid var(--paper); background:var(--rust); box-shadow:0 0 0 1px #c98e74; border-radius:50%; }
-    .timeline-date { font:10px ui-monospace,monospace; color:var(--rust); letter-spacing:.05em; text-transform:uppercase; margin-bottom:6px; }
-    .timeline-text { font-size:13px; line-height:1.45; color:#495750; }
-    .evidence { background:#f0e8d6; border-color:#e5d9bf; }
-    .evidence h2 { color:#684f36; }
-    .evidence p { color:#7b684f; font-size:12px; line-height:1.5; margin:11px 0 16px; }
-    .evidence-link { display:flex; gap:8px; color:#89603f; text-decoration:none; font-size:12px; font-weight:650; }
-    .filter-row { display:flex; gap:7px; margin:0 0 14px; overflow:auto; padding-bottom:2px; }
-    .filter { border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:7px; padding:6px 9px; font-size:11px; white-space:nowrap; }
-    .filter.active, .filter:hover { background:var(--deep); border-color:var(--deep); color:#fff; }
-    .empty { display:none; padding:28px 10px; text-align:center; color:var(--muted); font-size:13px; }
-    .toast { position:fixed; right:22px; bottom:22px; background:var(--deep); color:#fff; padding:13px 16px; border-radius:11px; font-size:13px; box-shadow:var(--shadow); transform:translateY(20px); opacity:0; pointer-events:none; transition:.25s ease; }
+    .top-link { border:1px solid var(--line); background:transparent; color:#aab5b5; border-radius:4px; padding:8px 11px; font:11px var(--mono); }
+    .top-link:hover { border-color:var(--line-bright); color:#fff; }
+    .avatar { width:34px; height:34px; display:grid; place-items:center; background:#192b2d; border:1px solid #2c5652; color:var(--cyan); border-radius:4px; font:11px var(--mono); }
+    .hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:24px; }
+    h1,h2,h3,p { margin:0; }
+    h1 { max-width:720px; font:600 clamp(30px,4vw,52px)/.98 var(--display); letter-spacing:-.075em; }
+    .hero-copy { margin-top:11px; color:var(--muted); font-size:14px; line-height:1.5; }
+    .hero-copy strong { color:var(--cyan); font-weight:600; }
+    .primary { border:0; background:var(--orange); color:#fff; border-radius:4px; padding:12px 15px; font:700 12px var(--mono); display:inline-flex; align-items:center; gap:9px; white-space:nowrap; transition:.18s ease; }
+    .primary:hover { background:#ff713d; transform:translateY(-1px); }
+    .search-wrap { position:relative; margin-bottom:25px; }
+    .search-wrap svg { position:absolute; left:15px; top:14px; width:17px; color:var(--cyan); }
+    .search { width:100%; padding:14px 100px 14px 44px; background:#0e1315; border:1px solid var(--line); color:#fff; border-radius:4px; font-size:13px; }
+    .search::placeholder { color:#647276; }
+    .search:focus { border-color:#42736f; }
+    .search-hint { position:absolute; top:9px; right:12px; color:#667478; border:1px solid var(--line); padding:4px 6px; border-radius:3px; font:10px var(--mono); }
+    .section-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; }
+    .section-heading h2 { font:600 15px var(--display); letter-spacing:-.03em; }
+    .section-heading a { color:var(--orange-2); font:10px var(--mono); text-decoration:none; }
+    .section-heading a:hover { color:#fff; }
+    .metric-grid { display:grid; grid-template-columns:1.25fr 1fr 1fr 1fr; gap:10px; margin-bottom:27px; }
+    .metric { min-height:118px; padding:15px; background:var(--panel); border:1px solid var(--line); border-radius:4px; position:relative; overflow:hidden; }
+    .metric.featured { border-color:#73402a; background:linear-gradient(145deg,#1d1715,#121719 70%); }
+    .metric-label { color:#819094; font:10px var(--mono); text-transform:uppercase; letter-spacing:.08em; }
+    .metric-value { margin-top:17px; font:500 27px var(--mono); letter-spacing:-.06em; }
+    .metric.featured .metric-value { color:var(--orange-2); }
+    .metric-meta { margin-top:5px; color:#788589; font:10px var(--mono); }
+    .metric-icon { position:absolute; right:14px; bottom:13px; color:#324147; }
+    .metric.featured .metric-icon { color:#73402a; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(270px,.75fr); gap:17px; align-items:start; }
+    .panel { background:rgba(16,21,24,.9); border:1px solid var(--line); border-radius:4px; padding:19px; }
+    .panel-headline { display:flex; align-items:center; gap:9px; }
+    .live-pill { color:var(--lime); font:9px var(--mono); border:1px solid #36502c; padding:3px 5px; border-radius:3px; }
+    .filter-row { display:flex; gap:6px; overflow:auto; padding-bottom:2px; margin-bottom:12px; }
+    .filter { border:1px solid var(--line); background:transparent; color:#819094; border-radius:3px; padding:6px 8px; font:10px var(--mono); white-space:nowrap; }
+    .filter:hover,.filter.active { background:#1f292b; color:var(--cyan); border-color:#416361; }
+    .memory-list { display:grid; }
+    .memory { display:grid; grid-template-columns:52px minmax(0,1fr) auto; gap:13px; align-items:center; border-top:1px solid #202a2e; padding:14px 0; }
+    .memory-thumb { width:52px; height:52px; display:grid; place-items:center; border:1px solid #324045; border-radius:3px; color:var(--cyan); background:#142225; }
+    .thumb-note { color:var(--amber); background:#24221a; border-color:#51472a; }
+    .thumb-audio { color:var(--orange-2); background:#261b18; border-color:#5d362a; }
+    .memory-title { color:#e7eded; font-size:13px; font-weight:650; margin-bottom:5px; }
+    .memory-desc { max-width:440px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#7f8b8f; font-size:11px; }
+    .memory-tags { display:flex; gap:5px; margin-top:7px; flex-wrap:wrap; }
+    .tag { background:#182124; color:#8b9b9f; padding:3px 5px; border-radius:2px; font:9px var(--mono); }
+    .memory-date { color:#657276; font:9px var(--mono); white-space:nowrap; align-self:start; padding-top:3px; }
+    .right-stack { display:grid; gap:17px; }
+    .telemetry { background:#0d1315; }
+    .telemetry-row { padding:12px 0; border-top:1px solid #202a2e; }
+    .telemetry-row:first-of-type { border-top:0; }
+    .telemetry-label { display:flex; justify-content:space-between; color:#a5b1b2; font:10px var(--mono); }
+    .telemetry-label strong { color:var(--cyan); font-weight:500; }
+    .bar { height:4px; background:#202a2e; margin-top:8px; overflow:hidden; border-radius:2px; }
+    .bar span { display:block; height:100%; background:var(--cyan); }
+    .bar.orange span { background:var(--orange); }
+    .bar.lime span { background:var(--lime); }
+    .runtime-card { background:linear-gradient(145deg,#132124,#101518); border-color:#2c4f50; }
+    .runtime-card h2 { color:var(--cyan); }
+    .runtime-card p { color:#8fa1a1; font-size:11px; line-height:1.55; margin:11px 0 15px; }
+    .runtime-card a { color:var(--cyan); font:10px var(--mono); text-decoration:none; }
+    .runtime-card a:hover { color:#fff; }
+    .footer-note { margin-top:25px; color:#5d6a6e; font:10px var(--mono); }
+    .footer-note span { color:var(--orange-2); }
+    .empty { display:none; padding:27px 8px; text-align:center; color:#748185; font:11px var(--mono); }
+    .toast { position:fixed; right:22px; bottom:22px; background:#192225; border:1px solid #3b5559; color:#e8f1ef; padding:12px 14px; border-radius:3px; font:11px var(--mono); box-shadow:0 12px 30px rgba(0,0,0,.35); transform:translateY(16px); opacity:0; pointer-events:none; transition:.2s ease; }
     .toast.show { transform:none; opacity:1; }
-    @media (max-width:900px) { .app { grid-template-columns:1fr; } .sidebar { padding:15px 18px; flex-direction:row; align-items:center; gap:18px; position:sticky; top:0; z-index:3; } .brand { padding:0; } .brand-sub, .nav-label, .sidebar-bottom { display:none; } .nav { display:flex; overflow:auto; } .nav button { width:auto; white-space:nowrap; padding:9px 11px; } .nav button.active { box-shadow:inset 0 -3px var(--yellow); } main { padding-top:24px; } }
-    @media (max-width:700px) { main { padding:22px 16px 35px; } .topbar { margin-bottom:23px; } .welcome { display:block; } .welcome .primary { margin-top:18px; width:100%; justify-content:center; } .overview { grid-template-columns:1fr 1fr; } .stat:first-child { grid-column:1 / -1; } .workspace { grid-template-columns:1fr; } .memory { grid-template-columns:50px minmax(0,1fr); gap:11px; } .memory-thumb { width:50px; height:50px; } .memory-date { grid-column:2; padding:0; margin-top:-8px; } .panel { padding:17px; } }
-    @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; scroll-behavior:auto !important; } }
+    @media (max-width:980px) { .app { grid-template-columns:1fr; } .sidebar { padding:14px 17px; flex-direction:row; align-items:center; gap:17px; position:sticky; top:0; z-index:5; } .brand { padding:0; } .brand-sub,.runtime,.nav-title,.sidebar-foot { display:none; } .nav { display:flex; overflow:auto; } .nav button { width:auto; white-space:nowrap; padding:9px 10px; } .nav button.active { box-shadow:inset 0 -2px var(--orange); } main { padding-top:23px; } }
+    @media (max-width:720px) { main { padding:20px 15px 38px; } .top-link { display:none; } .hero { display:block; } .primary { margin-top:18px; width:100%; justify-content:center; } .metric-grid { grid-template-columns:1fr 1fr; } .metric.featured { grid-column:1 / -1; } .workspace { grid-template-columns:1fr; } .memory { grid-template-columns:44px minmax(0,1fr); gap:10px; } .memory-thumb { width:44px; height:44px; } .memory-date { grid-column:2; padding:0; margin-top:-7px; } .panel { padding:16px; } }
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; scroll-behavior:auto !important; } }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar" aria-label="Primary navigation">
-      <div class="brand"><div class="brand-mark">R</div><div><div class="brand-name">Reminiscence</div><span class="brand-sub">private memory</span></div></div>
-      <div class="nav-label">Workspace</div>
+      <div class="brand"><div class="brand-top"><div class="chip-mark">R</div><div><div class="brand-name">Reminiscence</div><div class="brand-sub">snapdragon-ready memory</div></div></div></div>
+      <div class="runtime"><div class="runtime-label"><span class="status-dot"></span> local runtime</div><div class="runtime-name">QNN / ONNX ROUTER</div><div class="runtime-detail">Prepared for CPU · GPU · Hexagon NPU routing. No memory leaves this device.</div></div>
+      <div class="nav-title">Control surface</div>
       <nav class="nav">
-        <button class="active" data-view="Overview"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</button>
-        <button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search memories</button>
-        <button data-view="Timeline"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 3v18M6 7h6a3 3 0 0 1 0 6H6m0 0h7a3 3 0 0 1 0 6H6"/></svg>Timeline</button>
-        <button data-view="Sources"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V20h13.5A2.5 2.5 0 0 0 20 17.5"/></svg>Sources</button>
+        <button class="active" data-view="Overview"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</button>
+        <button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search memories</button>
+        <button data-view="Timeline"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M6 3v18M6 7h6a3 3 0 0 1 0 6H6m0 0h7a3 3 0 0 1 0 6H6"/></svg>Timeline</button>
+        <button data-view="Sources"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V20h13.5A2.5 2.5 0 0 0 20 17.5"/></svg>Sources</button>
       </nav>
-      <div class="sidebar-bottom"><div class="privacy-chip"><span class="privacy-dot"></span>Everything stays local</div><p class="privacy-copy">Your memories are indexed on this device. Nothing is uploaded without your say.</p></div>
+      <div class="sidebar-foot"><strong>DESIGNED FOR THE EDGE</strong><br />Fast, private, power-efficient inference for personal memory workloads.</div>
     </aside>
     <main>
-      <div class="topbar"><div class="crumb"><strong>Workspace</strong><span> / </span> Overview</div><div class="top-actions"><button class="icon-button" aria-label="Open settings" data-action="settings"><svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 3.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H2a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 8.9 3.3V3a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 10h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 1.4Z"/></svg></button><div class="avatar" aria-label="Profile">AM</div></div></div>
-      <section class="welcome"><div><h1>Good morning, Alex.</h1><p>Your memory garden is growing quietly.</p></div><button class="primary" id="importButton"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>Import memories</button><input id="fileInput" type="file" multiple hidden /></section>
-      <div class="search-wrap"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><input class="search" id="searchInput" type="search" placeholder="Search your memories… try “summer trips” or “when did we move?”" aria-label="Search your memories" /><span class="search-hint">⌘ K</span></div>
-      <section class="overview" aria-label="Memory overview"><div class="stat"><div class="stat-label">Total memories</div><div class="stat-value">2,438</div><div class="stat-meta">+ 28 this week</div><svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M4 17.5C7 14 8 10 12 12s4 6 8 1"/><path d="M4 20V4m0 16h16"/></svg></div><div class="stat"><div class="stat-label">People recognized</div><div class="stat-value">48</div><div class="stat-meta">Across 12 places</div><svg width="31" height="31" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20c.7-3.8 2.9-5.5 7-5.5s6.3 1.7 7 5.5"/></svg></div><div class="stat"><div class="stat-label">Index health</div><div class="stat-value">100%</div><div class="stat-meta">Last synced just now</div><svg width="31" height="31" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/></svg></div></section>
-      <div class="workspace"><section class="panel"><div class="section-heading"><h2>Recent memories</h2><a href="#" id="viewAll">View all</a></div><div class="filter-row"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="photo">Photos</button><button class="filter" data-filter="note">Notes</button><button class="filter" data-filter="audio">Audio</button></div><div class="memory-list" id="memoryList"><article class="memory" data-type="photo"><div class="memory-thumb thumb-photo"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg></div><div><div class="memory-title">A slow morning in Oia</div><div class="memory-desc">The light came through the blue shutters around 7:20.</div><div class="memory-tags"><span class="tag">Santorini</span><span class="tag">summer 2023</span></div></div><div class="memory-date">JUN 18, 2023</div></article><article class="memory" data-type="note"><div class="memory-thumb thumb-note"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><div><div class="memory-title">The apartment hunt</div><div class="memory-desc">Notes from our first viewing in the east village.</div><div class="memory-tags"><span class="tag">New York</span><span class="tag">milestone</span></div></div><div class="memory-date">MAR 04, 2022</div></article><article class="memory" data-type="audio"><div class="memory-thumb thumb-audio"><svg width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M8 18V6l10-2v12"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/></svg></div><div><div class="memory-title">Voice note · “Call Mum”</div><div class="memory-desc">A reminder about the recipe she made for Diwali.</div><div class="memory-tags"><span class="tag">audio</span><span class="tag">family</span></div></div><div class="memory-date">OCT 24, 2021</div></article></div><div class="empty" id="emptyState">No memories match this filter yet.</div></section><div class="right-stack"><section class="panel"><div class="section-heading"><h2>On your timeline</h2><a href="#">Open timeline</a></div><div class="timeline"><div class="timeline-item"><div class="timeline-date">Today · 9:42 AM</div><div class="timeline-text">Imported 12 new memories from <strong>~/Pictures/Trips</strong></div></div><div class="timeline-item"><div class="timeline-date">Yesterday</div><div class="timeline-text">You revisited memories tagged <strong>“home”</strong></div></div><div class="timeline-item"><div class="timeline-date">September 2023</div><div class="timeline-text">7 memories connected to <strong>Alex, Priya</strong></div></div></div></section><section class="panel evidence"><h2>Ask your memory</h2><p>Get an answer grounded in your own files, with the source moments attached.</p><a class="evidence-link" href="#searchInput" id="askLink">Try a question <span>→</span></a></section></div></div>
+      <div class="topbar"><div class="breadcrumb"><strong>REMINISCENCE</strong> <span>//</span> <span>SNAPDRAGON PROFILE</span></div><div class="top-actions"><button class="top-link" data-action="settings">Runtime settings ↗</button><div class="avatar" aria-label="Profile">AM</div></div></div>
+      <section class="hero"><div><h1>Private memory at the edge.</h1><p class="hero-copy">A local-first multimodal index tuned for <strong>low-latency on-device AI</strong> on Snapdragon X Series hardware.</p></div><button class="primary" id="importButton"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>Import memories</button><input id="fileInput" type="file" multiple hidden /></section>
+      <div class="search-wrap"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><input class="search" id="searchInput" type="search" placeholder="Query your local memory graph… try “summer trips” or “when did we move?”" aria-label="Search your memories" /><span class="search-hint">⌘ K</span></div>
+      <section class="metric-grid" aria-label="Runtime and memory metrics"><div class="metric featured"><div class="metric-label">NPU target · X Elite</div><div class="metric-value">45 TOPS</div><div class="metric-meta">Hexagon NPU ceiling · illustrative</div><svg class="metric-icon" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4M9 9h6v6H9z"/></svg></div><div class="metric"><div class="metric-label">Indexed memories</div><div class="metric-value">2,438</div><div class="metric-meta">+ 28 this week</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 12h5M8 15h7"/></svg></div><div class="metric"><div class="metric-label">Query latency</div><div class="metric-value">18 ms</div><div class="metric-meta">local hybrid search</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M4 13h4l2-7 3 12 2-6h5"/></svg></div><div class="metric"><div class="metric-label">Power posture</div><div class="metric-value">ECO</div><div class="metric-meta">CPU fallback in prototype</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M13 2 5 13h6l-1 9 8-11h-6z"/></svg></div></section>
+      <div class="workspace"><section class="panel"><div class="section-heading"><div class="panel-headline"><h2>Recent memory events</h2><span class="live-pill">LOCAL INDEX</span></div><a href="#" id="viewAll">OPEN LIBRARY ↗</a></div><div class="filter-row"><button class="filter active" data-filter="all">ALL</button><button class="filter" data-filter="photo">PHOTOS</button><button class="filter" data-filter="note">NOTES</button><button class="filter" data-filter="audio">AUDIO</button></div><div class="memory-list" id="memoryList"><article class="memory" data-type="photo"><div class="memory-thumb"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg></div><div><div class="memory-title">A slow morning in Oia</div><div class="memory-desc">The light came through the blue shutters around 7:20.</div><div class="memory-tags"><span class="tag">SANTORINI</span><span class="tag">SUMMER 2023</span></div></div><div class="memory-date">JUN 18, 2023</div></article><article class="memory" data-type="note"><div class="memory-thumb thumb-note"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><div><div class="memory-title">The apartment hunt</div><div class="memory-desc">Notes from our first viewing in the east village.</div><div class="memory-tags"><span class="tag">NEW YORK</span><span class="tag">MILESTONE</span></div></div><div class="memory-date">MAR 04, 2022</div></article><article class="memory" data-type="audio"><div class="memory-thumb thumb-audio"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M8 18V6l10-2v12"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/></svg></div><div><div class="memory-title">Voice note · “Call Mum”</div><div class="memory-desc">A reminder about the recipe she made for Diwali.</div><div class="memory-tags"><span class="tag">AUDIO</span><span class="tag">FAMILY</span></div></div><div class="memory-date">OCT 24, 2021</div></article></div><div class="empty" id="emptyState">No memory events match this query.</div></section><div class="right-stack"><section class="panel telemetry"><div class="section-heading"><h2>Inference telemetry</h2><a href="#" id="telemetryLink">DETAILS ↗</a></div><div class="telemetry-row"><div class="telemetry-label"><span>CPU / lexical</span><strong>64%</strong></div><div class="bar"><span style="width:64%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>GPU / visual</span><strong>32%</strong></div><div class="bar orange"><span style="width:32%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>Hexagon NPU / QNN</span><strong>STANDBY</strong></div><div class="bar lime"><span style="width:8%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>Memory footprint</span><strong>1.8 GB</strong></div><div class="bar"><span style="width:42%"></span></div></div></section><section class="panel runtime-card"><h2>Built for on-device AI.</h2><p>Run multimodal retrieval with low latency, local privacy, and a runtime that can route workloads across CPU, GPU, and Hexagon NPU.</p><a href="#" id="runtimeLink">VIEW QNN / ONNX ROUTER →</a></section></div></div>
+      <div class="footer-note">PROTOTYPE TELEMETRY <span>//</span> provider claims stay grounded: NPU acceleration is not enabled until the runtime reports it.</div>
     </main>
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>
     const toast = (message) => { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => el.classList.remove('show'), 2800); };
     const input = document.querySelector('#searchInput');
-    document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active')); button.classList.add('active'); document.querySelector('.crumb').innerHTML = `<strong>Workspace</strong><span> / </span> ${button.dataset.view}`; if (button.dataset.view !== 'Overview') toast(`${button.dataset.view} view is ready for backend wiring.`); }));
+    document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active')); button.classList.add('active'); document.querySelector('.breadcrumb').innerHTML = `<strong>REMINISCENCE</strong> <span>//</span> <span>${button.dataset.view.toUpperCase()} PROFILE</span>`; if (button.dataset.view !== 'Overview') toast(`${button.dataset.view} view is ready for backend wiring.`); }));
     document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.filter').forEach(b => b.classList.remove('active')); button.classList.add('active'); const type = button.dataset.filter; let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = type === 'all' || memory.dataset.type === type; memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; }));
-    input.addEventListener('input', () => { const term = input.value.toLowerCase().trim(); let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = !term || memory.textContent.toLowerCase().includes(term); memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').textContent = term ? `No memories found for “${term}”.` : 'No memories match this filter yet.'; document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; });
+    input.addEventListener('input', () => { const term = input.value.toLowerCase().trim(); let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = !term || memory.textContent.toLowerCase().includes(term); memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').textContent = term ? `No memory events found for “${term}”.` : 'No memory events match this query.'; document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; });
     document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); input.focus(); } });
     document.querySelector('#importButton').addEventListener('click', () => document.querySelector('#fileInput').click());
-    document.querySelector('#fileInput').addEventListener('change', event => { if (event.target.files.length) toast(`${event.target.files.length} file${event.target.files.length > 1 ? 's' : ''} selected — import flow ready.`); });
-    document.querySelector('#askLink').addEventListener('click', event => { event.preventDefault(); input.value = 'What moments made this place feel like home?'; input.focus(); input.dispatchEvent(new Event('input')); });
-    document.querySelector('#viewAll').addEventListener('click', event => { event.preventDefault(); toast('Full memory library is ready for backend wiring.'); });
-    document.querySelector('[data-action="settings"]').addEventListener('click', () => toast('Settings are intentionally local-first in this prototype.'));
+    document.querySelector('#fileInput').addEventListener('change', event => { if (event.target.files.length) toast(`${event.target.files.length} file${event.target.files.length > 1 ? 's' : ''} queued for local ingestion.`); });
+    document.querySelectorAll('#telemetryLink,#runtimeLink').forEach(link => link.addEventListener('click', event => { event.preventDefault(); toast('Runtime detail panel is ready for QNN provider data.'); }));
+    document.querySelector('#viewAll').addEventListener('click', event => { event.preventDefault(); toast('Full local memory library is ready for backend wiring.'); });
+    document.querySelector('[data-action="settings"]').addEventListener('click', () => toast('Runtime settings are local-first in this prototype.'));
   </script>
 </body>
 </html>
