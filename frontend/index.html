@@ -3,151 +3,152 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#080b0d" />
-  <title>Reminiscence // Snapdragon-ready local memory</title>
+  <meta name="theme-color" content="#f4f0e8" />
+  <title>Reminiscence — Your private memory archive</title>
   <style>
-    :root { --bg:#080b0d; --panel:#101518; --panel-2:#151b1e; --line:#273135; --line-bright:#344147; --text:#edf2f0; --muted:#879498; --orange:#ff5b22; --orange-2:#ff8a45; --cyan:#7be6d0; --lime:#bbef65; --amber:#e9c36a; --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace; --sans:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --display:Arial,sans-serif; }
+    :root { --bg:#f4f0e8; --surface:#fcfbf8; --surface-warm:#eee8dc; --ink:#26332d; --muted:#7b847d; --faint:#a4aaa3; --line:#deded5; --sage:#dce6d8; --sage-ink:#48604d; --terracotta:#b96448; --terracotta-dark:#8e4938; --blue:#c7d9dd; --blue-ink:#365761; --danger:#a34f45; --focus:#9b613f; --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px; --space-7:48px; --radius-sm:8px; --radius-md:14px; --radius-lg:20px; --shadow:0 12px 30px rgba(46,52,45,.07); --font-body:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --font-display:Georgia,"Times New Roman",serif; --font-label:"SFMono-Regular",Consolas,monospace; }
     * { box-sizing:border-box; }
     html { scroll-behavior:smooth; }
-    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-body); }
     button,input { font:inherit; }
     button { cursor:pointer; }
-    button:focus-visible,input:focus-visible,a:focus-visible { outline:2px solid var(--orange-2); outline-offset:3px; }
-    ::selection { background:var(--orange); color:#fff; }
-    .app { display:grid; grid-template-columns:258px minmax(0,1fr); min-height:100vh; position:relative; }
-    .sidebar { border-right:1px solid var(--line); background:rgba(8,11,13,.92); padding:25px 17px 19px; display:flex; flex-direction:column; }
-    .brand { padding:0 12px 35px; }
-    .brand-top { display:flex; align-items:center; gap:11px; }
-    .chip-mark { width:34px; height:34px; border:1px solid var(--orange); color:var(--orange); display:grid; place-items:center; position:relative; font:700 13px var(--mono); }
-    .chip-mark::before,.chip-mark::after { content:""; position:absolute; inset:-5px 7px; border-top:1px solid var(--orange); border-bottom:1px solid var(--orange); opacity:.6; }
-    .chip-mark::after { inset:7px -5px; border:0; border-left:1px solid var(--orange); border-right:1px solid var(--orange); }
-    .brand-name { font:700 18px var(--display); letter-spacing:-.04em; }
-    .brand-sub { margin-top:4px; color:var(--orange-2); font:10px var(--mono); letter-spacing:.16em; text-transform:uppercase; }
-    .runtime { border:1px solid var(--line); background:rgba(16,21,24,.8); padding:14px 13px; margin:0 5px 26px; }
-    .runtime-label { display:flex; align-items:center; gap:8px; color:var(--muted); font:10px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
-    .status-dot { width:6px; height:6px; border-radius:50%; background:var(--lime); }
-    .runtime-name { margin-top:11px; font:600 14px var(--mono); color:#fff; }
-    .runtime-detail { margin-top:7px; font-size:11px; line-height:1.45; color:var(--muted); }
-    .nav-title { padding:0 13px 10px; color:#68767a; font:10px var(--mono); letter-spacing:.15em; text-transform:uppercase; }
-    .nav { display:grid; gap:5px; }
-    .nav button { border:0; background:transparent; color:#a9b5b6; display:flex; align-items:center; gap:12px; width:100%; padding:12px 13px; border-radius:5px; text-align:left; font-size:13px; transition:.18s ease; }
-    .nav button:hover { background:#171e21; color:#fff; }
-    .nav button.active { background:#211713; color:#fff; box-shadow:inset 2px 0 var(--orange); }
-    .nav svg { width:16px; height:16px; color:var(--cyan); }
-    .sidebar-foot { margin-top:auto; padding:16px 10px 0; border-top:1px solid var(--line); color:#6f7c80; font-size:10px; line-height:1.55; }
-    .sidebar-foot strong { color:#aab7b8; font-weight:600; }
-    main { min-width:0; padding:26px clamp(20px,4vw,58px) 52px; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; }
-    .breadcrumb { color:#708084; font:11px var(--mono); letter-spacing:.04em; }
-    .breadcrumb strong { color:#c6d0cf; font-weight:500; }
+    button:focus-visible,input:focus-visible,a:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
+    ::selection { background:#d3dfcf; color:var(--ink); }
+    .app { min-height:100vh; display:grid; grid-template-columns:230px minmax(0,1fr); }
+    .sidebar { border-right:1px solid var(--line); background:rgba(250,248,243,.68); padding:26px 16px 22px; display:flex; flex-direction:column; }
+    .brand { display:flex; align-items:center; gap:10px; padding:0 11px 38px; text-decoration:none; color:var(--ink); }
+    .brand-mark { width:34px; height:34px; border-radius:50% 44% 52% 48%; background:var(--terracotta); color:#fff; display:grid; place-items:center; font:500 19px var(--font-display); transform:rotate(-10deg); }
+    .brand-name { font:600 18px var(--font-display); letter-spacing:-.035em; }
+    .brand-sub { display:block; margin-top:2px; color:var(--muted); font:10px var(--font-label); letter-spacing:.08em; text-transform:uppercase; }
+    .nav-label { color:var(--faint); padding:0 12px 10px; font:10px var(--font-label); letter-spacing:.12em; text-transform:uppercase; }
+    .nav { display:grid; gap:4px; }
+    .nav button { min-height:44px; width:100%; border:0; background:transparent; color:#6e7871; border-radius:var(--radius-sm); padding:10px 12px; display:flex; align-items:center; gap:11px; text-align:left; font-size:13px; transition:background .18s ease,color .18s ease; }
+    .nav button:hover { color:var(--ink); background:#efede5; }
+    .nav button.active { color:var(--sage-ink); background:var(--sage); font-weight:650; }
+    .nav svg { width:17px; height:17px; flex:none; }
+    .sidebar-bottom { margin-top:auto; padding:17px 10px 0; border-top:1px solid var(--line); }
+    .local-status { display:flex; align-items:center; gap:8px; color:var(--sage-ink); font-size:12px; font-weight:650; }
+    .status-dot { width:7px; height:7px; border-radius:50%; background:#6b9b68; }
+    .sidebar-note { color:var(--muted); font-size:11px; line-height:1.5; margin:8px 0 0; }
+    main { width:100%; max-width:1320px; padding:28px clamp(20px,5vw,68px) 52px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:52px; }
+    .crumb { color:var(--muted); font-size:12px; }
+    .crumb strong { color:var(--ink); font-weight:600; }
     .top-actions { display:flex; align-items:center; gap:10px; }
-    .top-link { border:1px solid var(--line); background:transparent; color:#aab5b5; border-radius:4px; padding:8px 11px; font:11px var(--mono); }
-    .top-link:hover { border-color:var(--line-bright); color:#fff; }
-    .avatar { width:34px; height:34px; display:grid; place-items:center; background:#192b2d; border:1px solid #2c5652; color:var(--cyan); border-radius:4px; font:11px var(--mono); }
-    .hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:24px; }
+    .top-button { min-width:44px; min-height:44px; border:1px solid var(--line); background:var(--surface); color:var(--muted); border-radius:50%; display:grid; place-items:center; }
+    .top-button:hover { color:var(--ink); border-color:#bfc6bd; }
+    .avatar { width:36px; height:36px; border-radius:50%; background:var(--sage); color:var(--sage-ink); display:grid; place-items:center; font:600 12px var(--font-display); }
+    .hero { display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin-bottom:28px; }
     h1,h2,h3,p { margin:0; }
-    h1 { max-width:720px; font:600 clamp(30px,4vw,52px)/.98 var(--display); letter-spacing:-.075em; }
-    .hero-copy { margin-top:11px; color:var(--muted); font-size:14px; line-height:1.5; }
-    .hero-copy strong { color:var(--cyan); font-weight:600; }
-    .primary { border:0; background:var(--orange); color:#fff; border-radius:4px; padding:12px 15px; font:700 12px var(--mono); display:inline-flex; align-items:center; gap:9px; white-space:nowrap; transition:.18s ease; }
-    .primary:hover { background:#ff713d; transform:translateY(-1px); }
-    .search-wrap { position:relative; margin-bottom:25px; }
-    .search-wrap svg { position:absolute; left:15px; top:14px; width:17px; color:var(--cyan); }
-    .search { width:100%; padding:14px 100px 14px 44px; background:#0e1315; border:1px solid var(--line); color:#fff; border-radius:4px; font-size:13px; }
-    .search::placeholder { color:#647276; }
-    .search:focus { border-color:#42736f; }
-    .search-hint { position:absolute; top:9px; right:12px; color:#667478; border:1px solid var(--line); padding:4px 6px; border-radius:3px; font:10px var(--mono); }
-    .section-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; }
-    .section-heading h2 { font:600 15px var(--display); letter-spacing:-.03em; }
-    .section-heading a { color:var(--orange-2); font:10px var(--mono); text-decoration:none; }
-    .section-heading a:hover { color:#fff; }
-    .metric-grid { display:grid; grid-template-columns:1.25fr 1fr 1fr 1fr; gap:10px; margin-bottom:27px; }
-    .metric { min-height:118px; padding:15px; background:var(--panel); border:1px solid var(--line); border-radius:4px; position:relative; overflow:hidden; }
-    .metric.featured { border-color:#73402a; background:linear-gradient(145deg,#1d1715,#121719 70%); }
-    .metric-label { color:#819094; font:10px var(--mono); text-transform:uppercase; letter-spacing:.08em; }
-    .metric-value { margin-top:17px; font:500 27px var(--mono); letter-spacing:-.06em; }
-    .metric.featured .metric-value { color:var(--orange-2); }
-    .metric-meta { margin-top:5px; color:#788589; font:10px var(--mono); }
-    .metric-icon { position:absolute; right:14px; bottom:13px; color:#324147; }
-    .metric.featured .metric-icon { color:#73402a; }
-    .workspace { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(270px,.75fr); gap:17px; align-items:start; }
-    .panel { background:rgba(16,21,24,.9); border:1px solid var(--line); border-radius:4px; padding:19px; }
-    .panel-headline { display:flex; align-items:center; gap:9px; }
-    .live-pill { color:var(--lime); font:9px var(--mono); border:1px solid #36502c; padding:3px 5px; border-radius:3px; }
-    .filter-row { display:flex; gap:6px; overflow:auto; padding-bottom:2px; margin-bottom:12px; }
-    .filter { border:1px solid var(--line); background:transparent; color:#819094; border-radius:3px; padding:6px 8px; font:10px var(--mono); white-space:nowrap; }
-    .filter:hover,.filter.active { background:#1f292b; color:var(--cyan); border-color:#416361; }
-    .memory-list { display:grid; }
-    .memory { display:grid; grid-template-columns:52px minmax(0,1fr) auto; gap:13px; align-items:center; border-top:1px solid #202a2e; padding:14px 0; }
-    .memory-thumb { width:52px; height:52px; display:grid; place-items:center; border:1px solid #324045; border-radius:3px; color:var(--cyan); background:#142225; }
-    .thumb-note { color:var(--amber); background:#24221a; border-color:#51472a; }
-    .thumb-audio { color:var(--orange-2); background:#261b18; border-color:#5d362a; }
-    .memory-title { color:#e7eded; font-size:13px; font-weight:650; margin-bottom:5px; }
-    .memory-desc { max-width:440px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#7f8b8f; font-size:11px; }
-    .memory-tags { display:flex; gap:5px; margin-top:7px; flex-wrap:wrap; }
-    .tag { background:#182124; color:#8b9b9f; padding:3px 5px; border-radius:2px; font:9px var(--mono); }
-    .memory-date { color:#657276; font:9px var(--mono); white-space:nowrap; align-self:start; padding-top:3px; }
-    .right-stack { display:grid; gap:17px; }
-    .telemetry { background:#0d1315; }
-    .telemetry-row { padding:12px 0; border-top:1px solid #202a2e; }
-    .telemetry-row:first-of-type { border-top:0; }
-    .telemetry-label { display:flex; justify-content:space-between; color:#a5b1b2; font:10px var(--mono); }
-    .telemetry-label strong { color:var(--cyan); font-weight:500; }
-    .bar { height:4px; background:#202a2e; margin-top:8px; overflow:hidden; border-radius:2px; }
-    .bar span { display:block; height:100%; background:var(--cyan); }
-    .bar.orange span { background:var(--orange); }
-    .bar.lime span { background:var(--lime); }
-    .runtime-card { background:linear-gradient(145deg,#132124,#101518); border-color:#2c4f50; }
-    .runtime-card h2 { color:var(--cyan); }
-    .runtime-card p { color:#8fa1a1; font-size:11px; line-height:1.55; margin:11px 0 15px; }
-    .runtime-card a { color:var(--cyan); font:10px var(--mono); text-decoration:none; }
-    .runtime-card a:hover { color:#fff; }
-    .footer-note { margin-top:25px; color:#5d6a6e; font:10px var(--mono); }
-    .footer-note span { color:var(--orange-2); }
-    .empty { display:none; padding:27px 8px; text-align:center; color:#748185; font:11px var(--mono); }
-    .toast { position:fixed; right:22px; bottom:22px; background:#192225; border:1px solid #3b5559; color:#e8f1ef; padding:12px 14px; border-radius:3px; font:11px var(--mono); box-shadow:0 12px 30px rgba(0,0,0,.35); transform:translateY(16px); opacity:0; pointer-events:none; transition:.2s ease; }
-    .toast.show { transform:none; opacity:1; }
-    @media (max-width:980px) { .app { grid-template-columns:1fr; } .sidebar { padding:14px 17px; flex-direction:row; align-items:center; gap:17px; position:sticky; top:0; z-index:5; } .brand { padding:0; } .brand-sub,.runtime,.nav-title,.sidebar-foot { display:none; } .nav { display:flex; overflow:auto; } .nav button { width:auto; white-space:nowrap; padding:9px 10px; } .nav button.active { box-shadow:inset 0 -2px var(--orange); } main { padding-top:23px; } }
-    @media (max-width:720px) { main { padding:20px 15px 38px; } .top-link { display:none; } .hero { display:block; } .primary { margin-top:18px; width:100%; justify-content:center; } .metric-grid { grid-template-columns:1fr 1fr; } .metric.featured { grid-column:1 / -1; } .workspace { grid-template-columns:1fr; } .memory { grid-template-columns:44px minmax(0,1fr); gap:10px; } .memory-thumb { width:44px; height:44px; } .memory-date { grid-column:2; padding:0; margin-top:-7px; } .panel { padding:16px; } }
+    h1 { color:var(--ink); font:500 clamp(34px,4.8vw,58px)/1.02 var(--font-display); letter-spacing:-.06em; }
+    .hero p { color:var(--muted); font-size:14px; margin-top:12px; }
+    .primary { min-height:46px; border:0; border-radius:var(--radius-sm); background:var(--terracotta); color:#fff; padding:11px 16px; display:inline-flex; align-items:center; justify-content:center; gap:9px; font-weight:700; font-size:13px; transition:background .18s ease,transform .18s ease; white-space:nowrap; }
+    .primary:hover { background:var(--terracotta-dark); transform:translateY(-1px); }
+    .search-wrap { position:relative; margin-bottom:32px; }
+    .search-wrap svg { position:absolute; left:17px; top:15px; width:18px; color:var(--terracotta); }
+    .search { width:100%; min-height:50px; padding:13px 95px 13px 47px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--surface); color:var(--ink); box-shadow:0 3px 12px rgba(46,52,45,.025); }
+    .search::placeholder { color:#a0a69e; }
+    .search-hint { position:absolute; right:14px; top:11px; padding:5px 7px; border:1px solid var(--line); border-radius:6px; color:var(--faint); background:#f8f6f1; font:11px var(--font-label); }
+    .content-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(270px,.75fr); gap:22px; align-items:start; }
+    .section-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+    .section-heading h2 { font:600 18px var(--font-display); letter-spacing:-.03em; }
+    .section-heading a { color:var(--terracotta-dark); text-decoration:none; font-size:12px; font-weight:700; }
+    .section-heading a:hover { text-decoration:underline; text-underline-offset:3px; }
+    .memory-panel { min-width:0; }
+    .memory-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+    .memory-card { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden; box-shadow:0 3px 12px rgba(46,52,45,.025); transition:transform .18s ease,box-shadow .18s ease; }
+    .memory-card:hover { transform:translateY(-2px); box-shadow:var(--shadow); }
+    .memory-visual { height:132px; display:grid; place-items:center; color:var(--ink); }
+    .visual-photo { background:linear-gradient(145deg,#f1d3a4 0 38%,#d89a68 39% 63%,#799080 64%); }
+    .visual-note { background:#e6ddc9; color:#776346; }
+    .visual-audio { background:#d2e0dd; color:#4b726d; }
+    .memory-body { padding:14px; }
+    .memory-title { color:var(--ink); font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .memory-meta { color:var(--muted); font-size:11px; margin-top:5px; }
+    .memory-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+    .tag { padding:4px 7px; border-radius:6px; background:#f0f1eb; color:#6c7a70; font:10px var(--font-label); }
+    .side-stack { display:grid; gap:18px; }
+    .panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-md); padding:19px; }
+    .timeline { padding-left:19px; position:relative; }
+    .timeline::before { content:""; position:absolute; top:5px; bottom:7px; left:4px; width:1px; background:#ccd5cb; }
+    .timeline-item { position:relative; padding:0 0 20px; }
+    .timeline-item:last-child { padding-bottom:0; }
+    .timeline-item::before { content:""; position:absolute; left:-19px; top:3px; width:7px; height:7px; border:2px solid var(--surface); border-radius:50%; background:var(--terracotta); box-shadow:0 0 0 1px #d19a87; }
+    .timeline-date { color:var(--terracotta-dark); font:10px var(--font-label); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+    .timeline-text { color:#56635b; font-size:12px; line-height:1.5; }
+    .capture-panel { background:var(--surface-warm); border-color:#e2d9c9; }
+    .capture-panel p { color:#746c5d; font-size:12px; line-height:1.5; margin:7px 0 14px; }
+    .capture-options { display:grid; gap:7px; }
+    .capture-option { min-height:44px; border:1px solid #d9cdbb; background:rgba(255,255,255,.35); color:#765a47; border-radius:var(--radius-sm); display:flex; align-items:center; gap:9px; padding:9px 10px; text-align:left; font-size:12px; }
+    .capture-option:hover { background:#fff9ef; border-color:#caa98d; }
+    .privacy-panel { background:var(--sage); border-color:#cedbc9; }
+    .privacy-panel h2 { color:var(--sage-ink); }
+    .privacy-panel p { color:#5d7461; font-size:12px; line-height:1.5; margin:8px 0 12px; }
+    .privacy-link { color:var(--sage-ink); font-size:12px; font-weight:700; text-decoration:none; }
+    .privacy-link:hover { text-decoration:underline; text-underline-offset:3px; }
+    .empty { display:none; grid-column:1/-1; text-align:center; padding:38px 16px; background:var(--surface); border:1px dashed #cbd0c6; border-radius:var(--radius-md); color:var(--muted); font-size:13px; }
+    .empty strong { display:block; color:var(--ink); font:600 18px var(--font-display); margin-bottom:7px; }
+    .empty button { margin-top:15px; min-height:44px; border:1px solid var(--line); background:transparent; color:var(--terracotta-dark); border-radius:var(--radius-sm); padding:8px 12px; font-weight:700; }
+    .notice { display:none; margin:0 0 20px; padding:13px 15px; border-radius:var(--radius-sm); background:#f4dfcd; border:1px solid #e2b79d; color:#794632; font-size:12px; line-height:1.45; }
+    .notice.show { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .notice button { flex:none; border:0; background:transparent; color:#794632; padding:0; font-size:18px; line-height:1; }
+    .toast { position:fixed; right:22px; bottom:22px; z-index:10; max-width:340px; background:var(--ink); color:#fff; padding:13px 16px; border-radius:var(--radius-sm); box-shadow:var(--shadow); font-size:13px; opacity:0; transform:translateY(12px); pointer-events:none; transition:opacity .2s ease,transform .2s ease; }
+    .toast.show { opacity:1; transform:none; }
+    .bottom-nav { display:none; }
+    @media (max-width:960px) { .app { grid-template-columns:1fr; } .sidebar { display:flex; flex-direction:row; align-items:center; gap:18px; padding:14px 18px; position:sticky; top:0; z-index:4; } .brand { padding:0; } .brand-sub,.nav-label,.sidebar-bottom { display:none; } .nav { display:flex; overflow:auto; } .nav button { width:auto; white-space:nowrap; } .nav button.active { box-shadow:inset 0 -2px var(--terracotta); } main { padding-top:28px; } }
+    @media (max-width:700px) { main { padding:20px 15px 100px; } .topbar { margin-bottom:34px; } .hero { display:block; } .hero .primary { width:100%; margin-top:19px; } .content-grid { grid-template-columns:1fr; } .memory-grid { grid-template-columns:1fr; } .memory-visual { height:156px; } .bottom-nav { position:fixed; display:grid; grid-template-columns:repeat(5,1fr); left:10px; right:10px; bottom:10px; z-index:5; padding:6px; border:1px solid var(--line); border-radius:16px; background:rgba(252,251,248,.96); box-shadow:var(--shadow); } .bottom-nav button { min-height:50px; border:0; background:transparent; color:var(--muted); display:grid; place-items:center; gap:2px; font-size:9px; } .bottom-nav button.active { color:var(--terracotta-dark); font-weight:700; } .bottom-nav svg { width:18px; height:18px; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; scroll-behavior:auto !important; } }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar" aria-label="Primary navigation">
-      <div class="brand"><div class="brand-top"><div class="chip-mark">R</div><div><div class="brand-name">Reminiscence</div><div class="brand-sub">snapdragon-ready memory</div></div></div></div>
-      <div class="runtime"><div class="runtime-label"><span class="status-dot"></span> local runtime</div><div class="runtime-name">QNN / ONNX ROUTER</div><div class="runtime-detail">Prepared for CPU · GPU · Hexagon NPU routing. No memory leaves this device.</div></div>
-      <div class="nav-title">Control surface</div>
+      <a class="brand" href="#home" aria-label="Reminiscence home"><div class="brand-mark">R</div><div><div class="brand-name">Reminiscence</div><span class="brand-sub">your private archive</span></div></a>
+      <div class="nav-label">Your space</div>
       <nav class="nav">
-        <button class="active" data-view="Overview"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</button>
-        <button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search memories</button>
+        <button class="active" data-view="Home"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="m4 10 8-7 8 7v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M9 21v-6h6v6"/></svg>Home</button>
+        <button data-view="Memories"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m4 16 4-4 3 3 2-2 7 4"/></svg>Memories</button>
+        <button data-view="Collections"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M4 6h6l2 2h8v10H4z"/></svg>Collections</button>
         <button data-view="Timeline"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M6 3v18M6 7h6a3 3 0 0 1 0 6H6m0 0h7a3 3 0 0 1 0 6H6"/></svg>Timeline</button>
-        <button data-view="Sources"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V20h13.5A2.5 2.5 0 0 0 20 17.5"/></svg>Sources</button>
+        <button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search</button>
+        <button data-view="Settings"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 0 1.4l.1.1a1.8 1.8 0 1 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-1.4 0 1.8 1.8 0 0 0-.9 1.2v.2a1.8 1.8 0 1 1-3.6 0v-.2a1.8 1.8 0 0 0-.9-1.2 1.8 1.8 0 0 0-1.4 0l-.1.1A1.8 1.8 0 1 1 6.1 16.5l.1-.1a1.8 1.8 0 0 0 0-1.4A1.8 1.8 0 0 0 5 14.1h-.2a1.8 1.8 0 1 1 0-3.6H5a1.8 1.8 0 0 0 1.2-.9 1.8 1.8 0 0 0 0-1.4l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 1.4 0A1.8 1.8 0 0 0 11 4.5v-.2a1.8 1.8 0 1 1 3.6 0v.2a1.8 1.8 0 0 0 .9 1.2 1.8 1.8 0 0 0 1.4 0l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 0 1.4A1.8 1.8 0 0 0 20.5 11h.2a1.8 1.8 0 1 1 0 3.6h-.2a1.8 1.8 0 0 0-1.1.4Z"/></svg>Settings</button>
       </nav>
-      <div class="sidebar-foot"><strong>DESIGNED FOR THE EDGE</strong><br />Fast, private, power-efficient inference for personal memory workloads.</div>
+      <div class="sidebar-bottom"><div class="local-status"><span class="status-dot"></span> Private on this device</div><p class="sidebar-note">Your memories are indexed locally. Nothing is shared unless you choose to share it.</p></div>
     </aside>
-    <main>
-      <div class="topbar"><div class="breadcrumb"><strong>REMINISCENCE</strong> <span>//</span> <span>SNAPDRAGON PROFILE</span></div><div class="top-actions"><button class="top-link" data-action="settings">Runtime settings ↗</button><div class="avatar" aria-label="Profile">AM</div></div></div>
-      <section class="hero"><div><h1>Private memory at the edge.</h1><p class="hero-copy">A local-first multimodal index tuned for <strong>low-latency on-device AI</strong> on Snapdragon X Series hardware.</p></div><button class="primary" id="importButton"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>Import memories</button><input id="fileInput" type="file" multiple hidden /></section>
-      <div class="search-wrap"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><input class="search" id="searchInput" type="search" placeholder="Query your local memory graph… try “summer trips” or “when did we move?”" aria-label="Search your memories" /><span class="search-hint">⌘ K</span></div>
-      <section class="metric-grid" aria-label="Runtime and memory metrics"><div class="metric featured"><div class="metric-label">NPU target · X Elite</div><div class="metric-value">45 TOPS</div><div class="metric-meta">Hexagon NPU ceiling · illustrative</div><svg class="metric-icon" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4M9 9h6v6H9z"/></svg></div><div class="metric"><div class="metric-label">Indexed memories</div><div class="metric-value">2,438</div><div class="metric-meta">+ 28 this week</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 12h5M8 15h7"/></svg></div><div class="metric"><div class="metric-label">Query latency</div><div class="metric-value">18 ms</div><div class="metric-meta">local hybrid search</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M4 13h4l2-7 3 12 2-6h5"/></svg></div><div class="metric"><div class="metric-label">Power posture</div><div class="metric-value">ECO</div><div class="metric-meta">CPU fallback in prototype</div><svg class="metric-icon" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.3" viewBox="0 0 24 24"><path d="M13 2 5 13h6l-1 9 8-11h-6z"/></svg></div></section>
-      <div class="workspace"><section class="panel"><div class="section-heading"><div class="panel-headline"><h2>Recent memory events</h2><span class="live-pill">LOCAL INDEX</span></div><a href="#" id="viewAll">OPEN LIBRARY ↗</a></div><div class="filter-row"><button class="filter active" data-filter="all">ALL</button><button class="filter" data-filter="photo">PHOTOS</button><button class="filter" data-filter="note">NOTES</button><button class="filter" data-filter="audio">AUDIO</button></div><div class="memory-list" id="memoryList"><article class="memory" data-type="photo"><div class="memory-thumb"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg></div><div><div class="memory-title">A slow morning in Oia</div><div class="memory-desc">The light came through the blue shutters around 7:20.</div><div class="memory-tags"><span class="tag">SANTORINI</span><span class="tag">SUMMER 2023</span></div></div><div class="memory-date">JUN 18, 2023</div></article><article class="memory" data-type="note"><div class="memory-thumb thumb-note"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><div><div class="memory-title">The apartment hunt</div><div class="memory-desc">Notes from our first viewing in the east village.</div><div class="memory-tags"><span class="tag">NEW YORK</span><span class="tag">MILESTONE</span></div></div><div class="memory-date">MAR 04, 2022</div></article><article class="memory" data-type="audio"><div class="memory-thumb thumb-audio"><svg width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M8 18V6l10-2v12"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/></svg></div><div><div class="memory-title">Voice note · “Call Mum”</div><div class="memory-desc">A reminder about the recipe she made for Diwali.</div><div class="memory-tags"><span class="tag">AUDIO</span><span class="tag">FAMILY</span></div></div><div class="memory-date">OCT 24, 2021</div></article></div><div class="empty" id="emptyState">No memory events match this query.</div></section><div class="right-stack"><section class="panel telemetry"><div class="section-heading"><h2>Inference telemetry</h2><a href="#" id="telemetryLink">DETAILS ↗</a></div><div class="telemetry-row"><div class="telemetry-label"><span>CPU / lexical</span><strong>64%</strong></div><div class="bar"><span style="width:64%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>GPU / visual</span><strong>32%</strong></div><div class="bar orange"><span style="width:32%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>Hexagon NPU / QNN</span><strong>STANDBY</strong></div><div class="bar lime"><span style="width:8%"></span></div></div><div class="telemetry-row"><div class="telemetry-label"><span>Memory footprint</span><strong>1.8 GB</strong></div><div class="bar"><span style="width:42%"></span></div></div></section><section class="panel runtime-card"><h2>Built for on-device AI.</h2><p>Run multimodal retrieval with low latency, local privacy, and a runtime that can route workloads across CPU, GPU, and Hexagon NPU.</p><a href="#" id="runtimeLink">VIEW QNN / ONNX ROUTER →</a></section></div></div>
-      <div class="footer-note">PROTOTYPE TELEMETRY <span>//</span> provider claims stay grounded: NPU acceleration is not enabled until the runtime reports it.</div>
+    <main id="home">
+      <div class="topbar"><div class="crumb"><strong>Home</strong><span> / </span> Your memory archive</div><div class="top-actions"><button class="top-button" aria-label="Open settings" data-action="settings"><svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 0 1.4l.1.1a1.8 1.8 0 1 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-1.4 0 1.8 1.8 0 0 0-.9 1.2v.2a1.8 1.8 0 1 1-3.6 0v-.2a1.8 1.8 0 0 0-.9-1.2 1.8 1.8 0 0 0-1.4 0l-.1.1A1.8 1.8 0 1 1 6.1 16.5l.1-.1a1.8 1.8 0 0 0 0-1.4A1.8 1.8 0 0 0 5 14.1h-.2a1.8 1.8 0 1 1 0-3.6H5a1.8 1.8 0 0 0 1.2-.9 1.8 1.8 0 0 0 0-1.4l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 1.4 0A1.8 1.8 0 0 0 11 4.5v-.2a1.8 1.8 0 1 1 3.6 0v.2a1.8 1.8 0 0 0 .9 1.2 1.8 1.8 0 0 0 1.4 0l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 0 1.4A1.8 1.8 0 0 0 20.5 11h.2a1.8 1.8 0 1 1 0 3.6h-.2a1.8 1.8 0 0 0-1.1.4Z"/></svg></button><div class="avatar" aria-label="Profile">AM</div></div></div>
+      <section class="hero"><div><h1>Good morning, Alex.</h1><p>A quiet place for the moments you want to keep.</p></div><button class="primary" id="captureButton"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Capture a memory</button><input id="fileInput" type="file" multiple accept="image/*,video/*,audio/*,.pdf,.txt" hidden /></section>
+      <div class="notice" id="notice" role="alert"><span id="noticeText"></span><button type="button" aria-label="Dismiss notification" id="dismissNotice">×</button></div>
+      <div class="search-wrap"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><label for="searchInput" class="sr-only">Search memories</label><input class="search" id="searchInput" type="search" placeholder="Search your memories… try “summer trips” or “when did we move?”" /><span class="search-hint">⌘ K</span></div>
+      <div class="content-grid"><section class="memory-panel" aria-labelledby="recentHeading"><div class="section-heading"><h2 id="recentHeading">Recent memories</h2><a href="#" id="viewAll">View all</a></div><div class="memory-grid" id="memoryGrid"><article class="memory-card" data-search="oia santorini summer photo shutters morning"><div class="memory-visual visual-photo" role="img" aria-label="Warm afternoon light over a coastal town"><svg width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg></div><div class="memory-body"><div class="memory-title">A slow morning in Oia</div><div class="memory-meta">June 18, 2023 · Santorini</div><div class="memory-tags"><span class="tag">summer 2023</span><span class="tag">photo</span></div></div></article><article class="memory-card" data-search="apartment hunt new york milestone east village note home"><div class="memory-visual visual-note" role="img" aria-label="A handwritten note"><svg width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><div class="memory-body"><div class="memory-title">The apartment hunt</div><div class="memory-meta">March 4, 2022 · New York</div><div class="memory-tags"><span class="tag">milestone</span><span class="tag">note</span></div></div></article><article class="memory-card" data-search="voice note call mum recipe family audio diwali"><div class="memory-visual visual-audio" role="img" aria-label="An audio memory"><svg width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M8 18V6l10-2v12"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/></svg></div><div class="memory-body"><div class="memory-title">Voice note · “Call Mum”</div><div class="memory-meta">October 24, 2021 · Family</div><div class="memory-tags"><span class="tag">audio</span><span class="tag">family</span></div></div></article><div class="empty" id="emptyState"><strong>No memories found</strong><span id="emptyCopy">Try another search, or capture the moment that is missing.</span><br /><button type="button" id="clearSearch">Clear search</button></div></div></section>
+        <div class="side-stack"><section class="panel" aria-labelledby="timelineHeading"><div class="section-heading"><h2 id="timelineHeading">From your timeline</h2><a href="#" data-view-link="Timeline">Open timeline</a></div><div class="timeline"><div class="timeline-item"><div class="timeline-date">Today · 9:42 AM</div><div class="timeline-text">12 new memories are waiting to be organized.</div></div><div class="timeline-item"><div class="timeline-date">Yesterday</div><div class="timeline-text">You revisited memories tagged <strong>“home”</strong>.</div></div><div class="timeline-item"><div class="timeline-date">September 2023</div><div class="timeline-text">7 moments connected to <strong>Alex and Priya</strong>.</div></div></div></section><section class="panel capture-panel" aria-labelledby="captureHeading"><h2 id="captureHeading">Start with a moment</h2><p>Save something small now. You can add the rest later.</p><div class="capture-options"><button class="capture-option" data-capture="text"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Write a note</button><button class="capture-option" data-capture="media"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m3 17 5-5 3.5 3 2.5-2 7 5"/></svg>Add a photo or file</button></div></section><section class="panel privacy-panel" aria-labelledby="privacyHeading"><div class="local-status"><span class="status-dot"></span> Private by default</div><h2 id="privacyHeading">Your memories stay yours.</h2><p>Indexed on this device. Sharing and future AI features remain opt-in and visible.</p><a class="privacy-link" href="#" id="privacyLink">Review privacy settings →</a></section></div></div>
+      <p class="footer-note" style="margin-top:28px;color:var(--muted);font-size:11px;">On-device runtime ready for local processing. UI prototype only — no upload is reported as complete without a backend response.</p>
     </main>
   </div>
-  <div class="toast" id="toast" role="status"></div>
+  <nav class="bottom-nav" aria-label="Mobile navigation"><button class="active" data-view="Home"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="m4 10 8-7 8 7v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M9 21v-6h6v6"/></svg>Home</button><button data-view="Memories"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m4 16 4-4 3 3 2-2 7 4"/></svg>Memories</button><button data-view="Capture"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/></svg>Capture</button><button data-view="Timeline"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path d="M6 3v18M6 7h6a3 3 0 0 1 0 6H6m0 0h7a3 3 0 0 1 0 6H6"/></svg>Timeline</button><button data-view="Search"><svg fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>Search</button></nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <style>.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}</style>
   <script>
-    const toast = (message) => { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => el.classList.remove('show'), 2800); };
+    const toast = (message) => { const el = document.querySelector('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => el.classList.remove('show'), 3000); };
     const input = document.querySelector('#searchInput');
-    document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active')); button.classList.add('active'); document.querySelector('.breadcrumb').innerHTML = `<strong>REMINISCENCE</strong> <span>//</span> <span>${button.dataset.view.toUpperCase()} PROFILE</span>`; if (button.dataset.view !== 'Overview') toast(`${button.dataset.view} view is ready for backend wiring.`); }));
-    document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.filter').forEach(b => b.classList.remove('active')); button.classList.add('active'); const type = button.dataset.filter; let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = type === 'all' || memory.dataset.type === type; memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; }));
-    input.addEventListener('input', () => { const term = input.value.toLowerCase().trim(); let visible = 0; document.querySelectorAll('.memory').forEach(memory => { const show = !term || memory.textContent.toLowerCase().includes(term); memory.style.display = show ? 'grid' : 'none'; if (show) visible++; }); document.querySelector('#emptyState').textContent = term ? `No memory events found for “${term}”.` : 'No memory events match this query.'; document.querySelector('#emptyState').style.display = visible ? 'none' : 'block'; });
+    const cards = [...document.querySelectorAll('.memory-card')];
+    const empty = document.querySelector('#emptyState');
+    const applySearch = () => { const term = input.value.toLowerCase().trim(); let visible = 0; cards.forEach(card => { const show = !term || card.dataset.search.includes(term); card.hidden = !show; if (show) visible++; }); empty.style.display = visible ? 'none' : 'block'; document.querySelector('#emptyCopy').textContent = term ? `Nothing matched “${term}”. Try a broader search or clear the query.` : 'Try another search, or capture the moment that is missing.'; };
+    input.addEventListener('input', applySearch);
     document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); input.focus(); } });
-    document.querySelector('#importButton').addEventListener('click', () => document.querySelector('#fileInput').click());
-    document.querySelector('#fileInput').addEventListener('change', event => { if (event.target.files.length) toast(`${event.target.files.length} file${event.target.files.length > 1 ? 's' : ''} queued for local ingestion.`); });
-    document.querySelectorAll('#telemetryLink,#runtimeLink').forEach(link => link.addEventListener('click', event => { event.preventDefault(); toast('Runtime detail panel is ready for QNN provider data.'); }));
-    document.querySelector('#viewAll').addEventListener('click', event => { event.preventDefault(); toast('Full local memory library is ready for backend wiring.'); });
-    document.querySelector('[data-action="settings"]').addEventListener('click', () => toast('Runtime settings are local-first in this prototype.'));
+    document.querySelector('#clearSearch').addEventListener('click', () => { input.value = ''; applySearch(); input.focus(); });
+    const fileInput = document.querySelector('#fileInput');
+    document.querySelector('#captureButton').addEventListener('click', () => fileInput.click());
+    document.querySelectorAll('[data-capture="media"]').forEach(button => button.addEventListener('click', () => fileInput.click()));
+    document.querySelectorAll('[data-capture="text"]').forEach(button => button.addEventListener('click', () => toast('Text capture is ready for the backend save flow. Your draft is not submitted.')));
+    fileInput.addEventListener('change', event => { if (event.target.files.length) { document.querySelector('#noticeText').textContent = `${event.target.files.length} file${event.target.files.length > 1 ? 's' : ''} selected. Nothing is uploaded until the backend confirms the request.`; document.querySelector('#notice').classList.add('show'); } });
+    document.querySelector('#dismissNotice').addEventListener('click', () => document.querySelector('#notice').classList.remove('show'));
+    const setView = (name) => { document.querySelectorAll('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === name)); document.querySelector('.crumb').innerHTML = `<strong>${name}</strong><span> / </span> Your memory archive`; if (name === 'Capture') fileInput.click(); else if (name !== 'Home') toast(`${name} is ready for backend wiring.`); };
+    document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
+    document.querySelectorAll('[data-view-link]').forEach(link => link.addEventListener('click', event => { event.preventDefault(); setView(link.dataset.viewLink); }));
+    document.querySelector('#viewAll').addEventListener('click', event => { event.preventDefault(); setView('Memories'); });
+    document.querySelector('#privacyLink').addEventListener('click', event => { event.preventDefault(); setView('Settings'); });
+    document.querySelector('[data-action="settings"]').addEventListener('click', () => setView('Settings'));
   </script>
 </body>
 </html>
