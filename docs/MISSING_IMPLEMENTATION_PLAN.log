@@ -1,0 +1,143 @@
+# Reminiscence — Missing Implementation Plan (LLM-Free Direction)
+
+Status: living backlog. Do not mark an item complete merely because an
+interface exists — completion = implementation + integration + tests +
+documentation + verification.
+
+Legend: ✅ implemented & tested · 🟡 partial/foundation · 🔴 missing
+
+---
+
+## Verified baseline (as of this audit)
+
+- 96/96 tests pass (`python -m pytest reminiscence/tests`)
+- pyproject.toml, .env.example, CI (.github/workflows/ci.yml, security.yml) ✅
+- MemoryEvent temporal semantics (event_time/captured_at/time_source/
+  time_confidence) + reproducibility versions ✅
+- SHA-256 content identity + dedup/moved-file handling ✅
+- SQLite migrations through v5; entity tables (persons/places/
+  events_entities/entity_links), inference_records, media_assets ✅
+- Hybrid retrieval α–ζ fusion with DB-configurable weights ✅
+- Rule-based query classifier (FACT/SOURCE_LOOKUP/TEMPORAL_LOOKUP/
+  CROSS_SOURCE/VISUAL/EXPLANATION) + month/year parsing ✅
+- Evidence resolver + ExtractiveGroundedAnswerer (LLM-free default) ✅
+- OnnxLocalLLM exists as OPTIONAL adapter only ✅
+- Persistent JobQueue (retries/recovery/priority) ✅
+- Incremental re-indexing (content hash + pipeline/embedding version skip) ✅
+- MediaStore (content-addressed, atomic, safe temp) ✅
+- Model Manager (manifest/checksum/states, no silent downloads) ✅
+- OCR backend abstraction + Whisper-ONNX ASR adapter (honest availability) 🟡
+- Snapdragon/QNN runtime detection abstractions ✅ (hardware validation 🔴 — blocked on target device)
+
+---
+
+## P0 — LLM-Free Answer Engine (Phase 4 of master plan)
+
+🔴 `reminiscence/evidence/answer_engine.py`
+   - `DeterministicAnswerer` handling per-intent structured answers:
+     FACT (evidence-backed extractive reply), TEMPORAL/TIMELINE
+     (chronologically sorted events), SOURCE_LOOKUP (document/page/section
+     list), ENTITY_PROFILE (places/events/people/dates/sources),
+     COMPARISON, CROSS_SOURCE (graph paths + supporting sources).
+   - Structured output types: FACT | TIMELINE | TABLE | SOURCE_LIST |
+     ENTITY_PROFILE | EVENT_LIST | COMPARISON | EXTRACTIVE_SUMMARY.
+   - Default wiring in `ReminiscenceEngine.ask()`; LLM only if
+     `REMINISCENCE_ENABLE_LLM=true` AND model verified loaded.
+   - Acceptance: every supported query class answers with LLM disabled;
+     refusal message exactly when evidence insufficient; conflicts surfaced.
+
+🔴 `reminiscence/evidence/context.py` — `EvidencePack`
+   (query, evidence_items, entities, temporal_context, provenance,
+    conflicts, confidence) with token/char budget management.
+
+🔴 Conflict detection — `Conflict(event_ids, source_ids, conflict_type,
+   severity)`; same-entity different date/location detection; never silently
+   resolve.
+
+🔴 Explainable confidence model (documented formula):
+   confidence = f(evidence_quality × retrieval_strength ×
+                  entity_resolution_confidence × temporal_confidence)
+   exposed as factors, not a single opaque number.
+
+## P1 — Query Understanding Without an LLM
+
+🟡 Extend `retrieval/query_classifier.py`:
+   - New intents: ENTITY_LOOKUP, TIMELINE, COMPARISON (rule-based).
+   - Intent-specific weight profiles applied in HybridRetriever
+     (FACT→lexical+semantic; TEMPORAL→temporal-heavy; ENTITY→entity+graph; …).
+🔴 `retrieval/temporal_parser.py` — dedicated TemporalConstraint parser:
+   yesterday/today/last week/month/year, "last Christmas", "in March",
+   "between June and August", "before 2024", "after January", "during X";
+   relations BEFORE/AFTER/DURING/BETWEEN/OVERLAPS/SAME_DAY/MONTH/YEAR;
+   precision + confidence fields.
+🔴 `memory/entities.py` — typed extracted entities
+   (PERSON/PLACE/ORGANIZATION/DATE/TIME/EVENT/TOPIC/OBJECT/DOCUMENT) with
+   surface_form/confidence/source_event_id on MemoryEvent.entities field.
+🔴 `graph/resolver.py` — entity resolution pipeline: normalize → exact →
+   case-insensitive → alias → fuzzy → embedding similarity → context;
+   low-confidence merges require manual confirmation.
+
+## P2 — Memory Graph Service (Phase E)
+
+🟡 Tables exist; service layer missing.
+🔴 `graph/service.py`, `graph/traversal.py` — typed edges (MENTIONS,
+   OCCURRED_AT, PART_OF, ABOUT, DERIVED_FROM, PARTICIPATED_IN, RELATED_TO,
+   SAME_TOPIC, SAME_PERSON, SAME_EVENT, PRECEDES, FOLLOWS), 1/2/3-hop
+   traversal with depth caps + explosion guard, provenance per edge
+   (confidence/method/model_version/evidence_id), "why selected" explanation.
+🔴 People: opt-in face detection → embedding → clustering → candidate →
+   user confirmation. No silent biometric identity assertion.
+🔴 Places: EXIF GPS → lat/lon/accuracy/city/country/place_id distinct from
+   image Region; offline geocoding optional later.
+
+## P3 — Multimodal Production Backends (Phase D)
+
+🟡 ASR: adapter + honest states done; real ONNX Whisper decode path needs
+   full segment timestamps + language + confidence end-to-end test with a
+   local fixture once artifact installed.
+🟡 OCR: abstraction done; production backend selection wired to Model
+   Manager manifests; region/confidence output tested synthetically.
+🔴 Video intelligence: scene/shot segmentation, duplicate-frame suppression,
+   transcript↔keyframe alignment tests, subtitle extraction.
+🟡 Image metadata: EXIF capture time done; GPS + visual embeddings pending.
+
+## P4 — Extractive Summarization (no generation)
+
+🔴 `memory/summarizer.py` — TextRank/LexRank/MMR over sentence segments;
+   scores = query relevance + entity + temporal + centrality + source
+   confidence; selects ONLY existing source text.
+
+## P5 — Reliability / Product (Phases 7–8)
+
+🔴 Backup/restore: manifest.json + checksums + schema/pipeline/embedding
+   versions; validate-before-replace restore.
+🔴 Secure deletion verification: `verify_deleted(source_id)` proving absence
+   across FTS/vector/graph/timeline/evidence/cache.
+🔴 PySide6 UI (Phase 6): shell, dashboard, import, search, ask, timeline,
+   memory detail, evidence panel, people, places, jobs, settings. UI holds
+   zero business logic; all heavy work off-thread via JobQueue.
+🔴 CLI parity: `people`, `places`, `backup`, `restore` commands added.
+
+## P6 — Evaluation (Phase 8)
+
+🔴 `benchmarks/retrieval/` curated dataset (documents/images/transcripts/
+   temporal/entities/cross-source) with expected event IDs; metrics beyond
+   Recall/Precision/MRR: nDCG@K, HitRate@K, temporal accuracy, evidence
+   coverage, answer-support rate, source-resolution accuracy. Weights tuned
+   against measurements, never hand-set as optimal.
+
+## P7 — Snapdragon/QNN (Phase 9) — HARDWARE-BLOCKED
+
+✅ provider detection, honest routing, CPU-fallback labeling, benchmark
+   traceability columns.
+🔴 Requires actual Snapdragon HP hardware: QNN model validation, NPU vs CPU
+   latency/throughput/memory/thermal/power benchmarks. Until measured: NO
+   acceleration claims anywhere.
+
+## Explicit non-goals (per master prompt §DO NOT)
+
+- No rewrite of working core modules.
+- No premature vector-DB dependency (NumPy index behind interface is fine).
+- No LLM hidden dependency; `REMINISCENCE_ENABLE_LLM=false` must remain a
+  fully functional product configuration.
+- No cloud mandatory paths, no auto model downloads, no raw-content logging.
