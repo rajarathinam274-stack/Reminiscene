@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "reminiscence"
 version = "0.1.0"
-description = "Local-first multimodal personal memory engine."
+description = "Local-first multimodal personal memory engine with an animated PySide6 desktop UI and Snapdragon-aware AI runtime."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -24,6 +24,7 @@ all = ["reminiscence[documents,audio,vision,ai,ui]"]
 
 [project.scripts]
 reminiscence = "reminiscence.app.main:main"
+reminiscence-gui = "reminiscence.app.ui.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["reminiscence*"]
