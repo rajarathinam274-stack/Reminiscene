@@ -1,0 +1,20 @@
+services:
+  reminiscence:
+    build: .
+    image: reminiscence:local
+    restart: "no"
+    environment:
+      REMINISCENCE_DATA_DIR: /data/reminiscence
+      REMINISCENCE_DB_PATH: /data/reminiscence/reminiscence.db
+      REMINISCENCE_MODEL_DIR: /data/reminiscence/models
+      REMINISCENCE_MEDIA_DIR: /data/reminiscence/media
+      REMINISCENCE_LOG_LEVEL: INFO
+      REMINISCENCE_TELEMETRY: "0"
+      REMINISCENCE_PREFER_NPU: "0"
+    volumes:
+      - reminiscence-data:/data/reminiscence
+      - ./imports:/imports:ro
+    command: ["status"]
+
+volumes:
+  reminiscence-data:

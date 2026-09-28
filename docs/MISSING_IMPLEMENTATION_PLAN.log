@@ -76,12 +76,12 @@ P0 — RELEASE-BLOCKING
 P1 — CORE PRODUCT
 =================
 
-8. PySide6 desktop UI — MISSING
+8. PySide6 desktop UI — PARTIAL
    Files: reminiscence/app/ui/*
    - Main window, import, search, ask, timeline, sources, media viewer,
      evidence panel, jobs and settings.
    - Keep long-running work off the UI thread.
-   Done when UI and CLI share the same service/engine layer.
+   Implemented: native animated workspace, search, recent-memory cards, provider status, and shared engine binding.\n   Remaining: import workflow, ask/evidence panel, media viewer, jobs/settings screens, and worker-thread UI integration.\n   Done when UI and CLI share the same service/engine layer and long-running UI actions stay off the UI thread.
 
 9. Incremental indexing — PARTIAL
    Files: ingestion/pipeline.py, storage/*, workers/queue.py

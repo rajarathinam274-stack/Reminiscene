@@ -24,12 +24,14 @@ from pathlib import Path
 
 from ..benchmarks.runner import BenchmarkRunner, current_machine
 from .services.engine import ReminiscenceEngine
+from .config.settings import Settings
 
 
 def _setup_logging(verbose: bool) -> None:
     # Structured local logging; raw document content is NEVER logged unless
     # REMINISCENCE_DEBUG_CONTENT=1 is explicitly set by a developer.
-    level = logging.DEBUG if verbose else logging.INFO
+    settings = Settings.from_env()
+    level = logging.DEBUG if verbose else getattr(logging, settings.log_level, logging.INFO)
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s :: %(message)s",

@@ -1,10 +1,62 @@
 # Reminiscence
 
-> Local-first multimodal personal memory engine for searchable, contextual, and evidence-grounded memories.
+> **Local-first multimodal personal AI memory engine** with an animated PySide6 desktop UI, hybrid memory search, evidence-grounded answers, and Snapdragon-aware AI acceleration.
 
-Reminiscence turns photos, videos, audio, documents, notes, timestamps, and metadata into a unified local memory index. It combines lexical, semantic, temporal, and graph-aware retrieval while keeping the default architecture offline-first.
+Reminiscence is a privacy-first **personal memory assistant**, **multimodal memory search engine**, and local knowledge system. It turns photos, videos, audio, documents, notes, timestamps, and metadata into a unified memory index for searchable, contextual, and evidence-grounded recall.
 
-## Current architecture
+The architecture is designed for **offline AI**, **on-device AI**, **Snapdragon Windows/ARM64**, ONNX Runtime/QNN provider routing, and efficient desktop interaction without requiring a cloud backend.
+
+## Highlights
+
+- 🧠 Multimodal personal memory engine for documents, images, audio, video, and notes
+- 🔎 Hybrid semantic + lexical + temporal + graph-aware memory retrieval
+- 🧩 Evidence-grounded answers with source references
+- 🕸️ Entity and memory graph foundations for people, places, events, and concepts
+- 🖥️ Native **PySide6 desktop UI** with lightweight animated transitions
+- ⚡ Snapdragon-aware runtime status with explicit QNN/NPU vs CPU reporting
+- 🔒 Local-first privacy model with no implicit cloud model downloads
+- 💾 SQLite + FTS5 persistence with vector-index abstraction
+- 🧵 Background ingestion jobs with retry/recovery foundations
+- 📊 Local benchmark and provider telemetry
+- 🧪 Headless engine remains independently testable from the GUI
+
+## Animated desktop UI
+
+The native frontend lives under `reminiscence/app/ui/` and uses PySide6 rather than a browser runtime.
+
+Current UI foundation includes:
+
+- animated memory workspace
+- fast local search box
+- recent-memory cards
+- memory/source/provider metrics
+- timeline/sources/graph/settings navigation shell
+- Snapdragon/QNN capability indicator
+- selectable evidence text
+- low-cost opacity transitions designed to avoid heavy animation workloads
+
+Install the UI extra and launch:
+
+```bash
+python -m pip install -e ".[ui]"
+reminiscence-gui
+```
+
+The GUI binds directly to `ReminiscenceEngine`; retrieval, ingestion, storage, and AI routing are not duplicated in the presentation layer.
+
+## Snapdragon and on-device AI
+
+Snapdragon support is capability-driven, not branding-driven. The application reports the runtime provider actually available to the workload.
+
+- QNN/NPU is shown only when the runtime verifies NPU availability.
+- CPU fallback remains a supported path.
+- Windows ARM64 is the target packaging path for QNN experimentation.
+- Snapdragon performance claims require on-device measurement and profiling.
+- The UI never labels CPU execution as NPU acceleration.
+
+This makes the frontend suitable for Snapdragon-powered Windows PCs while preserving portability to ordinary x64 development machines.
+
+## Architecture
 
     Personal files
          |
@@ -25,6 +77,8 @@ Reminiscence turns photos, videos, audio, documents, notes, timestamps, and meta
        Evidence Resolver
               |
      grounded answer layer
+              |
+       PySide6 desktop UI
 
 ## Implemented foundation
 
@@ -37,70 +91,59 @@ Reminiscence turns photos, videos, audio, documents, notes, timestamps, and meta
 - query intent and temporal parsing foundations
 - people/place/entity-link storage foundations
 - evidence resolution and grounded answer generation
+- deterministic Memory Graph service
 - durable SQLite-backed background jobs with retry/recovery
 - model registry/runtime and model checksum verification
 - ONNX/QNN provider detection and explicit fallback behavior
 - document, audio, image, and video ingestion foundations
 - benchmark telemetry with runtime/provider context
 - offline-by-default model policy
+- animated PySide6 desktop UI foundation
 
 ## Current limitations
 
-The repository is still an implementation-stage project. The following are not yet production-complete:
+The repository is still an implementation-stage project. The following remain incomplete or require target-device validation:
 
 - production ASR inference and Snapdragon/QNN validation
 - production OCR/vision inference
 - full video semantic understanding
-- complete Memory Graph service and entity resolution
-- local LLM runtime and complete EvidencePack contract
+- production local LLM runtime and complete EvidencePack contract
 - retrieval-quality evaluation dataset/metrics
-- PySide6 desktop UI
 - backup/export and secure deletion
 - complete incremental indexing
 - hardened security/CI gates
 - release packaging and target-device validation
 
-Authoritative backlog: docs/MISSING_IMPLEMENTATION_PLAN.log
+Authoritative backlog: `docs/MISSING_IMPLEMENTATION_PLAN.log`.
 
 ## Development
 
 The project targets Python 3.11+.
 
-When the packaging configuration is present on your working branch:
+```bash
+python -m venv .venv
+python -m pip install -e ".[dev]"
+pytest
+```
 
-    python -m venv .venv
-    pip install -e ".[dev]"
-    pytest
+For the native desktop UI:
 
-The CLI is intended to expose import, search, ask, timeline, source inspection, deletion, status, and benchmarking operations.
+```bash
+python -m pip install -e ".[ui]"
+reminiscence-gui
+```
+
+The CLI exposes import, search, ask, timeline, source inspection, deletion, status, and benchmarking operations.
 
 ## Privacy model
 
 Reminiscence is designed around local-first processing, no implicit network model downloads, explicit model verification, provider-aware inference reporting, no raw personal-content logging by default, and user-controlled deletion/export requirements.
 
-Biometric processing and network-backed enrichment should remain opt-in.
+Biometric processing and network-backed enrichment remain opt-in design requirements.
 
-## Snapdragon / NPU
+## Search/discovery keywords
 
-Snapdragon acceleration is treated as a measurable runtime capability. The system must report the actual execution provider and must not claim NPU acceleration when a workload fell back to CPU.
-
-## Repository hygiene
-
-Generated Python bytecode, virtual environments, local databases, logs, build artifacts, and environment files are ignored by Git. Use .env.example for documented configuration values; never commit secrets.
-
-## Project status
-
-Next implementation sequence:
-
-1. configuration and CI/security stabilization
-2. production ASR/OCR
-3. incremental ingestion and retrieval evaluation
-4. Memory Graph service
-5. local LLM + EvidencePack
-6. backup/export + secure deletion
-7. PySide6 desktop UI
-8. Snapdragon/QNN validation
-9. release engineering
+Local AI memory, personal AI assistant, private AI, offline AI, on-device AI, multimodal memory, personal knowledge management, memory search, semantic search, hybrid retrieval, evidence-grounded AI, local LLM, PySide6 desktop app, Snapdragon AI, Snapdragon NPU, Qualcomm AI, ONNX Runtime, QNN, Windows on ARM, privacy-first AI, personal knowledge graph.
 
 ## License
 

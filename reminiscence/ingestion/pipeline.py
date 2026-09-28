@@ -243,6 +243,7 @@ class IngestionPipeline:
         data_dir: str | Path,
         transcriber: Optional[Transcriber] = None,
         ocr: Optional[OCRBackend] = None,
+        max_file_size: int = 512 * 1024 * 1024,
     ):
         self.db = db
         self.index = index
@@ -252,6 +253,7 @@ class IngestionPipeline:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.transcriber = transcriber
         self.ocr = ocr
+        self.max_file_size = max_file_size
 
     # ------------------------------------------------------------------
     def ingest(self, path: str | Path, job: Optional[Job] = None,
@@ -260,6 +262,11 @@ class IngestionPipeline:
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
         warnings: list[str] = []
+        size = path.stat().st_size
+        if size > self.max_file_size:
+            raise ValueError(
+                f"Input file exceeds REMINISCENCE_MAX_FILE_SIZE ({self.max_file_size} bytes): {path}"
+            )
 
         def stage(name: str):
             if ctx:
@@ -298,7 +305,6 @@ class IngestionPipeline:
         # 2. Metadata extraction (incl. capture time — never import time)
         stage("metadata")
         mime = mimetypes.guess_type(str(path))[0]
-        size = path.stat().st_size
         duration = None
         if modality in (Modality.AUDIO, Modality.VIDEO):
             duration = ffprobe_duration(path)

@@ -14,7 +14,7 @@ from typing import Optional
 
 import numpy as np
 
-from ...ai.embeddings.embedder import Embedder, HashingTFIDFEmbedder, get_embedder
+from ...ai.embeddings.embedder import Embedder, get_embedder
 from ...ai.registry import ModelRegistry
 from ...ai.scheduler import AIWorkloadScheduler, SchedulerConfig
 from ...evidence.generator import (Answer, AnswerGenerator,
@@ -22,11 +22,12 @@ from ...evidence.generator import (Answer, AnswerGenerator,
 from ...evidence.resolver import EvidenceResolver
 from ...ingestion.pipeline import IngestionPipeline, IngestionResult
 from ...memory.events import MemoryEvent
-from ...retrieval.hybrid import Candidate, HybridRetriever, RetrievalWeights
-from ...retrieval.query_classifier import ClassifiedQuery, QueryClassifier
+from ...retrieval.hybrid import Candidate, HybridRetriever
+from ...retrieval.query_classifier import QueryClassifier
 from ...storage.database import Database
 from ...storage.vector_index import NumpyVectorIndex, VectorIndex
 from ...workers.queue import Job, JobQueue
+from ..config.settings import Settings
 
 
 @dataclass
@@ -37,8 +38,8 @@ class EnginePaths:
 
     @staticmethod
     def default() -> "EnginePaths":
-        base = Path.home() / ".reminiscence"
-        return EnginePaths(base, base / "reminiscence.db", base / "models")
+        settings = Settings.from_env()
+        return EnginePaths(settings.data_dir, settings.db_path, settings.model_dir)
 
 
 class ReminiscenceEngine:
@@ -50,23 +51,28 @@ class ReminiscenceEngine:
         registry: Optional[ModelRegistry] = None,
         scheduler_config: Optional[SchedulerConfig] = None,
     ):
+        settings = Settings.from_env()
         self.paths = paths or EnginePaths.default()
         self.paths.data_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.models_dir.mkdir(parents=True, exist_ok=True)
         self.db = Database(self.paths.db_path)
+        self.db.set_setting("telemetry", settings.telemetry)
         self.embedder = embedder or get_embedder()
         self.index: VectorIndex = NumpyVectorIndex(dim=self.embedder.dim)
         self.registry = registry or ModelRegistry()
-        self.scheduler = AIWorkloadScheduler(self.registry, scheduler_config)
+        self.scheduler = AIWorkloadScheduler(self.registry, scheduler_config or SchedulerConfig(allow_vlm=settings.allow_vlm))
         self.classifier = QueryClassifier()
         self.retriever = HybridRetriever(self.db, self.index, self.embedder)
         self.evidence = EvidenceResolver(self.db)
         self.answerer = answer_generator or ExtractiveGroundedAnswerer()
-        self.jobs = JobQueue(n_workers=2)
+        self.jobs = JobQueue(n_workers=settings.workers, db=self.db)
         self.pipeline = IngestionPipeline(
             db=self.db, index=self.index, embedder=self.embedder,
             scheduler=self.scheduler, data_dir=self.paths.data_dir,
+            max_file_size=settings.max_file_size,
         )
         self.jobs.register_handler("ingest", self._ingest_handler)
+        self.jobs.recover()
         self._restore_index()
 
     # ------------------------------------------------------------------
@@ -113,6 +119,11 @@ class ReminiscenceEngine:
     def sources(self):
         return self.db.list_sources()
 
+    def memory_count(self) -> int:
+        """Return the memory count without materializing every event."""
+        row = self.db._conn.execute("SELECT COUNT(*) AS n FROM memory_events").fetchone()
+        return int(row["n"])
+
     def delete_source(self, source_id: str) -> int:
         rows = self.db._conn.execute(
             "SELECT id FROM memory_events WHERE source_id=?", (source_id,)).fetchall()
@@ -133,6 +144,8 @@ class ReminiscenceEngine:
             "mode": "local-first",
             "cloud_dependencies": False,
             "telemetry_enabled": self.db.get_setting("telemetry", False),
+            "workers": len(self.jobs._workers),
+            "max_file_size": Settings.from_env().max_file_size,
             "npu_verified": self.scheduler.npu_available,
             "embedding_model": self.embedder.model_id,
             "data_dir": str(self.paths.data_dir),
