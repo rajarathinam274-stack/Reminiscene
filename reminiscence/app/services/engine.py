@@ -119,6 +119,11 @@ class ReminiscenceEngine:
     def sources(self):
         return self.db.list_sources()
 
+    def memory_count(self) -> int:
+        """Return the memory count without materializing every event."""
+        row = self.db._conn.execute("SELECT COUNT(*) AS n FROM memory_events").fetchone()
+        return int(row["n"])
+
     def delete_source(self, source_id: str) -> int:
         rows = self.db._conn.execute(
             "SELECT id FROM memory_events WHERE source_id=?", (source_id,)).fetchall()
